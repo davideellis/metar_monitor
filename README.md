@@ -28,6 +28,7 @@ Serverless METAR monitor on AWS using Terraform.
 ## Prerequisites
 - Terraform >= 1.6
 - AWS credentials configured (`aws configure` or environment variables)
+- Python 3.12 (for local unit tests)
 
 ## Deploy
 1. Copy and edit variables:
@@ -41,6 +42,20 @@ Serverless METAR monitor on AWS using Terraform.
    terraform apply
    ```
 4. If `alert_email` is set, confirm SNS subscription from your email inbox.
+
+## Unit Tests
+1. Install dev dependencies:
+   ```bash
+   py -m pip install -r requirements-dev.txt
+   ```
+2. Run tests:
+   ```bash
+   py -m pytest
+   ```
+3. Run tests with coverage:
+   ```bash
+   py -m pytest --cov=src --cov-report=term-missing
+   ```
 
 ## Useful outputs
 - `site_url`: static website endpoint

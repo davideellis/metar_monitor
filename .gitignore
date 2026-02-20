@@ -4,3 +4,7 @@ terraform.tfstate
 terraform.tfstate.backup
 *.tfplan
 build/*.zip
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
