@@ -244,6 +244,10 @@ def require_auth(event: dict) -> str:
     return verify_session_token(token)
 
 
+def auth_status() -> dict:
+    return {"bootstrapped": is_bootstrapped()}
+
+
 def list_stations() -> list[dict]:
     result = stations_table().scan()
     items = result.get("Items", [])
@@ -318,6 +322,9 @@ def lambda_handler(event, context):
     path_params = event.get("pathParameters") or {}
 
     try:
+        if method == "GET" and kind == "auth":
+            return response(200, auth_status())
+
         if method == "POST":
             body = json.loads(event.get("body") or "{}")
             action = str(body.get("action", "")).lower()

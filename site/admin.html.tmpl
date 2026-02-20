@@ -19,6 +19,8 @@
     .btn-danger { background: #b91c1c; }
     .cell-input { width: 100%; min-width: 100px; padding: 6px; }
     .hidden { display: none; }
+    .critical { border: 2px solid #dc2626; background: #fef2f2; }
+    .critical h3 { color: #991b1b; margin-top: 0; }
   </style>
 </head>
 <body>
@@ -26,8 +28,18 @@
     <h1>METAR Admin</h1>
     <p class="muted">Manage owners and station-level notification policy with username/password auth.</p>
 
+    <div id="bootstrapCard" class="card critical">
+      <h3>Critical: Initial Admin Bootstrap</h3>
+      <p class="muted">Create the very first admin account. This section is hidden after bootstrap succeeds.</p>
+      <div class="row" style="margin-top: 8px;">
+        <input id="bootstrap_user" placeholder="Bootstrap username" />
+        <input id="bootstrap_password" type="password" placeholder="Bootstrap password" />
+        <button id="bootstrap" class="btn-danger">Bootstrap Admin</button>
+      </div>
+    </div>
+
     <div class="card">
-      <h3>Admin Login</h3>
+      <h3>Admin Login & Reset</h3>
       <div class="row">
         <input id="username" placeholder="Username" />
         <input id="password" type="password" placeholder="Password" />
@@ -41,12 +53,7 @@
         <input id="new_password" type="password" placeholder="New password" />
         <button id="confirm_reset" class="btn-secondary">Confirm Reset</button>
       </div>
-      <div class="row" style="margin-top: 8px;">
-        <input id="bootstrap_user" placeholder="Bootstrap username" />
-        <input id="bootstrap_password" type="password" placeholder="Bootstrap password" />
-        <button id="bootstrap" class="btn-secondary">Bootstrap Admin</button>
-        <button id="load">Reload</button>
-      </div>
+      <div class="row" style="margin-top: 8px;"><button id="load">Reload</button></div>
     </div>
 
     <div class="card">
@@ -106,6 +113,15 @@
       try { data = text ? JSON.parse(text) : {}; } catch (_) {}
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       return data;
+    }
+
+    async function loadBootstrapStatus() {
+      try {
+        const data = await req("?type=auth", "GET");
+        el("bootstrapCard").classList.toggle("hidden", !!data.bootstrapped);
+      } catch (_) {
+        el("bootstrapCard").classList.remove("hidden");
+      }
     }
 
     async function loadOwners() {
@@ -244,6 +260,7 @@
         setToken(data.token || "");
         el("bootstrap_password").value = "";
         el("status").textContent = "Bootstrap successful.";
+        await loadBootstrapStatus();
         await loadAll();
       } catch (err) {
         el("status").textContent = `Bootstrap failed: ${err.message}`;
@@ -309,6 +326,7 @@
       }
     });
 
+    loadBootstrapStatus();
     loadAll();
   </script>
 </body>

@@ -65,3 +65,18 @@ def test_public_login_action_does_not_require_bearer(monkeypatch):
     }
     result = admin.lambda_handler(event, None)
     assert result["statusCode"] == 200
+
+
+def test_auth_status_endpoint_is_public(monkeypatch):
+    admin = load_lambda_module("src/admin/lambda_function.py")
+    monkeypatch.setattr(admin, "is_bootstrapped", lambda: True)
+    event = {
+        "requestContext": {"http": {"method": "GET"}},
+        "queryStringParameters": {"type": "auth"},
+        "pathParameters": {},
+        "headers": {},
+    }
+    result = admin.lambda_handler(event, None)
+    assert result["statusCode"] == 200
+    body = json.loads(result["body"])
+    assert body["bootstrapped"] is True
