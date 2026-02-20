@@ -40,6 +40,14 @@ def get_retention_days(env_name: str, default_value: int) -> int:
         return default_value
 
 
+def get_stale_threshold_hours() -> float:
+    raw = os.getenv("STALE_THRESHOLD_HOURS", "2")
+    try:
+        return max(0.25, float(raw))
+    except ValueError:
+        return 2.0
+
+
 def get_station_configs() -> list[dict]:
     stations_table_name = os.getenv("STATIONS_TABLE", "")
     if stations_table_name:
@@ -232,6 +240,12 @@ def station_alert_events(
     return payloads
 
 
+def filter_alert_events(events_payload: list[dict], alert_on_empty: bool) -> list[dict]:
+    if alert_on_empty:
+        return events_payload
+    return [e for e in events_payload if e.get("status") == "error"]
+
+
 def lambda_handler(event, context):
     checked_at = utc_now_iso()
     station_configs = get_station_configs()
@@ -243,6 +257,7 @@ def lambda_handler(event, context):
     router_event_bus = os.getenv("ROUTER_EVENT_BUS", "default")
     metar_retention_days = get_retention_days("METAR_RETENTION_DAYS", 30)
     run_retention_days = get_retention_days("RUN_RETENTION_DAYS", 30)
+    stale_threshold_hours = get_stale_threshold_hours()
 
     try:
         xml_body = fetch_xml(source_url)
@@ -284,36 +299,55 @@ def lambda_handler(event, context):
             metar_count=0,
             retention_days=run_retention_days,
         )
-        if alert_on_empty:
-            publish_station_alert_events(
-                station_alert_events(
-                    station_configs=station_configs,
-                    checked_at=checked_at,
-                    source_url=source_url,
-                    status_by_station={sid: "empty" for sid in station_ids},
-                ),
-                event_bus_name=router_event_bus,
-            )
+        station_events = station_alert_events(
+            station_configs=station_configs,
+            checked_at=checked_at,
+            source_url=source_url,
+            status_by_station={sid: "empty" for sid in station_ids},
+        )
+        publish_station_alert_events(
+            filter_alert_events(station_events, alert_on_empty=alert_on_empty),
+            event_bus_name=router_event_bus,
+        )
 
         return {"statusCode": 200, "body": json.dumps({"status": "empty", "count": 0})}
 
     metar_counts: dict[str, int] = {sid: 0 for sid in station_ids}
+    latest_observation_by_station: dict[str, datetime] = {}
     for m in metars:
         sid = m["station_id"]
         if sid in metar_counts:
             metar_counts[sid] += 1
+            try:
+                observed_at = parse_utc_iso(m["observation_time"])
+                previous = latest_observation_by_station.get(sid)
+                if previous is None or observed_at > previous:
+                    latest_observation_by_station[sid] = observed_at
+            except (KeyError, TypeError, ValueError):
+                pass
 
     station_statuses = {sid: ("ok" if metar_counts.get(sid, 0) > 0 else "empty") for sid in station_ids}
-    if alert_on_empty:
-        publish_station_alert_events(
-            station_alert_events(
-                station_configs=station_configs,
-                checked_at=checked_at,
-                source_url=source_url,
-                status_by_station=station_statuses,
-            ),
-            event_bus_name=router_event_bus,
-        )
+    checked_at_dt = parse_utc_iso(checked_at)
+    for sid in station_ids:
+        latest = latest_observation_by_station.get(sid)
+        if latest is None:
+            continue
+        age_hours = (checked_at_dt - latest).total_seconds() / 3600
+        if age_hours > stale_threshold_hours:
+            station_statuses[sid] = "error"
+
+    station_events = station_alert_events(
+        station_configs=station_configs,
+        checked_at=checked_at,
+        source_url=source_url,
+        status_by_station=station_statuses,
+    )
+    publish_station_alert_events(
+        filter_alert_events(station_events, alert_on_empty=alert_on_empty),
+        event_bus_name=router_event_bus,
+    )
+
+    run_status = "error" if any(v == "error" for v in station_statuses.values()) else "ok"
 
     write_metars(
         metars_table_name=metars_table,
@@ -324,7 +358,7 @@ def lambda_handler(event, context):
     write_run(
         runs_table_name=runs_table,
         checked_at_utc=checked_at,
-        status="ok",
+        status=run_status,
         station_ids=station_ids,
         source_url=source_url,
         metar_count=len(metars),

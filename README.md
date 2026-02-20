@@ -62,6 +62,7 @@ Serverless METAR monitor on AWS using Terraform.
 - Collector emits station-level alert events to EventBridge.
 - Run history stores each hourly invocation and status for availability reporting.
 - `ALERT_ON_EMPTY` controls whether zero-METAR responses generate alert events.
+- `STALE_THRESHOLD_HOURS` controls stale detection (default `2`): if a station's newest METAR observation is older than this, station status is `error`.
 - Detailed METAR observation records are retained for `metar_retention_days` (default: `30`).
 - Availability/run records are retained for `run_retention_days` (default: `30`).
 - Retention is implemented with DynamoDB TTL (`expires_at`) and may take up to 48 hours to fully purge expired items.

@@ -192,6 +192,7 @@ resource "aws_lambda_function" "collector" {
       STATIONS_TABLE       = aws_dynamodb_table.stations.name
       METAR_RETENTION_DAYS = tostring(var.metar_retention_days)
       RUN_RETENTION_DAYS   = tostring(var.run_retention_days)
+      STALE_THRESHOLD_HOURS = tostring(var.stale_threshold_hours)
       ROUTER_EVENT_BUS     = "default"
       ALERT_ON_EMPTY       = tostring(var.alert_on_empty)
     }

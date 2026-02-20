@@ -28,6 +28,12 @@ variable "run_retention_days" {
   default     = 30
 }
 
+variable "stale_threshold_hours" {
+  type        = number
+  description = "Treat station as error when newest METAR observation is older than this many hours"
+  default     = 2
+}
+
 variable "alert_on_empty" {
   type        = bool
   description = "Whether to send SNS alert when API returns no METARs"

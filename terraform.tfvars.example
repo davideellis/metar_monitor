@@ -3,6 +3,7 @@ station_ids      = ["KJWY"]
 lookback_hours   = 2.5
 metar_retention_days = 30
 run_retention_days   = 30
+stale_threshold_hours = 2
 alert_on_empty   = true
 alert_email      = "you@example.com"
 admin_token      = "replace-with-strong-token"
