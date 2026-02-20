@@ -25,6 +25,12 @@ data "archive_file" "admin_zip" {
   output_path = "${path.module}/build/admin.zip"
 }
 
+data "archive_file" "router_zip" {
+  type        = "zip"
+  source_dir  = "${path.module}/src/router"
+  output_path = "${path.module}/build/router.zip"
+}
+
 resource "aws_dynamodb_table" "metars" {
   name         = "${local.service_name}-metars"
   billing_mode = "PAY_PER_REQUEST"
@@ -80,6 +86,39 @@ resource "aws_dynamodb_table" "stations" {
   }
 }
 
+resource "aws_dynamodb_table" "owners" {
+  name         = "${local.service_name}-owners"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "owner_id"
+
+  attribute {
+    name = "owner_id"
+    type = "S"
+  }
+}
+
+resource "aws_dynamodb_table" "alert_state" {
+  name         = "${local.service_name}-alert-state"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "station_id"
+  range_key    = "alert_type"
+
+  attribute {
+    name = "station_id"
+    type = "S"
+  }
+
+  attribute {
+    name = "alert_type"
+    type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
+}
+
 resource "aws_sns_topic" "alerts" {
   name = "${local.service_name}-alerts"
 }
@@ -127,8 +166,8 @@ resource "aws_iam_role_policy" "collector_policy" {
       },
       {
         Effect   = "Allow"
-        Action   = ["sns:Publish"]
-        Resource = aws_sns_topic.alerts.arn
+        Action   = ["events:PutEvents"]
+        Resource = "*"
       }
     ]
   })
@@ -153,7 +192,7 @@ resource "aws_lambda_function" "collector" {
       STATIONS_TABLE       = aws_dynamodb_table.stations.name
       METAR_RETENTION_DAYS = tostring(var.metar_retention_days)
       RUN_RETENTION_DAYS   = tostring(var.run_retention_days)
-      ALERT_TOPIC_ARN      = aws_sns_topic.alerts.arn
+      ROUTER_EVENT_BUS     = "default"
       ALERT_ON_EMPTY       = tostring(var.alert_on_empty)
     }
   }
@@ -306,7 +345,8 @@ resource "aws_iam_role_policy" "admin_policy" {
         Effect = "Allow"
         Action = ["dynamodb:Scan", "dynamodb:PutItem", "dynamodb:DeleteItem"]
         Resource = [
-          aws_dynamodb_table.stations.arn
+          aws_dynamodb_table.stations.arn,
+          aws_dynamodb_table.owners.arn
         ]
       }
     ]
@@ -326,6 +366,7 @@ resource "aws_lambda_function" "admin" {
   environment {
     variables = {
       STATIONS_TABLE = aws_dynamodb_table.stations.name
+      OWNERS_TABLE   = aws_dynamodb_table.owners.name
       ADMIN_TOKEN    = var.admin_token
     }
   }
@@ -369,6 +410,12 @@ resource "aws_apigatewayv2_route" "admin_delete_station" {
   target    = "integrations/${aws_apigatewayv2_integration.admin_lambda.id}"
 }
 
+resource "aws_apigatewayv2_route" "admin_delete_owner" {
+  api_id    = aws_apigatewayv2_api.admin.id
+  route_key = "DELETE /owners/{owner_id}"
+  target    = "integrations/${aws_apigatewayv2_integration.admin_lambda.id}"
+}
+
 resource "aws_apigatewayv2_stage" "admin" {
   api_id      = aws_apigatewayv2_api.admin.id
   name        = "$default"
@@ -381,6 +428,88 @@ resource "aws_lambda_permission" "allow_admin_apigw" {
   function_name = aws_lambda_function.admin.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.admin.execution_arn}/*/*"
+}
+
+resource "aws_iam_role" "router_lambda" {
+  name = "${local.service_name}-router-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "lambda.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "router_policy" {
+  name = "${local.service_name}-router-policy"
+  role = aws_iam_role.router_lambda.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "arn:aws:logs:*:*:*"
+      },
+      {
+        Effect = "Allow"
+        Action = ["dynamodb:GetItem", "dynamodb:PutItem"]
+        Resource = [
+          aws_dynamodb_table.stations.arn,
+          aws_dynamodb_table.owners.arn,
+          aws_dynamodb_table.alert_state.arn
+        ]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["sns:Publish"]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+resource "aws_lambda_function" "router" {
+  function_name    = "${local.service_name}-router"
+  role             = aws_iam_role.router_lambda.arn
+  runtime          = "python3.12"
+  handler          = "lambda_function.lambda_handler"
+  filename         = data.archive_file.router_zip.output_path
+  source_code_hash = data.archive_file.router_zip.output_base64sha256
+  timeout          = 30
+  memory_size      = 256
+
+  environment {
+    variables = {
+      STATIONS_TABLE    = aws_dynamodb_table.stations.name
+      OWNERS_TABLE      = aws_dynamodb_table.owners.name
+      ALERT_STATE_TABLE = aws_dynamodb_table.alert_state.name
+    }
+  }
+}
+
+resource "aws_cloudwatch_event_rule" "router_alerts" {
+  name          = "${local.service_name}-router-alerts"
+  description   = "Route station alert events to owners"
+  event_pattern = jsonencode({ source = ["metar.monitor"], "detail-type" = ["station-alert"] })
+}
+
+resource "aws_cloudwatch_event_target" "router_target" {
+  rule      = aws_cloudwatch_event_rule.router_alerts.name
+  target_id = "router-lambda"
+  arn       = aws_lambda_function.router.arn
+}
+
+resource "aws_lambda_permission" "allow_router_eventbridge" {
+  statement_id  = "AllowExecutionFromRouterEventBridge"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.router.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.router_alerts.arn
 }
 
 resource "aws_s3_bucket" "site" {

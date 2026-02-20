@@ -11,7 +11,7 @@ from boto3.dynamodb.conditions import Attr
 
 BASE_URL = "https://aviationweather.gov/api/data/metar"
 dynamodb = boto3.resource("dynamodb")
-sns = boto3.client("sns")
+events = boto3.client("events")
 
 
 def utc_now_iso() -> str:
@@ -40,23 +40,47 @@ def get_retention_days(env_name: str, default_value: int) -> int:
         return default_value
 
 
-def get_station_ids() -> list[str]:
+def get_station_configs() -> list[dict]:
     stations_table_name = os.getenv("STATIONS_TABLE", "")
     if stations_table_name:
         stations_table = dynamodb.Table(stations_table_name)
         result = stations_table.scan(
-            ProjectionExpression="station_id, enabled",
+            ProjectionExpression=(
+                "station_id, enabled, owner_id, notify_on, cooldown_minutes, alerts_enabled"
+            ),
             FilterExpression=Attr("enabled").eq(True),
         )
         items = result.get("Items", [])
-        stations = sorted(
-            {str(i.get("station_id", "")).strip().upper() for i in items if i.get("station_id")}
-        )
-        if stations:
-            return stations
+        configs = []
+        for i in items:
+            station_id = str(i.get("station_id", "")).strip().upper()
+            if not station_id:
+                continue
+            configs.append(
+                {
+                    "station_id": station_id,
+                    "owner_id": i.get("owner_id", ""),
+                    "notify_on": str(i.get("notify_on", "both")).lower(),
+                    "cooldown_minutes": int(i.get("cooldown_minutes", 60)),
+                    "alerts_enabled": bool(i.get("alerts_enabled", True)),
+                }
+            )
+        if configs:
+            configs.sort(key=lambda x: x["station_id"])
+            return configs
 
     raw = os.getenv("STATION_IDS", "KJWY")
-    return [x.strip().upper() for x in raw.split(",") if x.strip()]
+    return [
+        {
+            "station_id": x.strip().upper(),
+            "owner_id": "",
+            "notify_on": "both",
+            "cooldown_minutes": 60,
+            "alerts_enabled": True,
+        }
+        for x in raw.split(",")
+        if x.strip()
+    ]
 
 
 def build_url(station_ids: list[str]) -> str:
@@ -163,22 +187,62 @@ def write_run(
     table.put_item(Item=item)
 
 
-def publish_alert(topic_arn: str | None, subject: str, message: str) -> None:
-    if not topic_arn:
+def publish_station_alert_events(station_events: list[dict], event_bus_name: str) -> None:
+    if not station_events:
         return
-    sns.publish(TopicArn=topic_arn, Subject=subject[:100], Message=message)
+
+    entries = [
+        {
+            "Source": "metar.monitor",
+            "DetailType": "station-alert",
+            "EventBusName": event_bus_name,
+            "Detail": json.dumps(e),
+        }
+        for e in station_events
+    ]
+    events.put_events(Entries=entries)
+
+
+def station_alert_events(
+    station_configs: list[dict],
+    checked_at: str,
+    source_url: str,
+    status_by_station: dict[str, str],
+    error_message: str = "",
+) -> list[dict]:
+    payloads = []
+    for cfg in station_configs:
+        sid = cfg["station_id"]
+        status = status_by_station.get(sid, "empty")
+        if status == "ok":
+            continue
+        payloads.append(
+            {
+                "checked_at_utc": checked_at,
+                "station_id": sid,
+                "status": status,
+                "source_url": source_url,
+                "error_message": error_message,
+                "owner_id": cfg.get("owner_id", ""),
+                "notify_on": cfg.get("notify_on", "both"),
+                "cooldown_minutes": cfg.get("cooldown_minutes", 60),
+                "alerts_enabled": cfg.get("alerts_enabled", True),
+            }
+        )
+    return payloads
 
 
 def lambda_handler(event, context):
     checked_at = utc_now_iso()
-    station_ids = get_station_ids()
+    station_configs = get_station_configs()
+    station_ids = [c["station_id"] for c in station_configs]
     source_url = build_url(station_ids)
     metars_table = os.environ["METARS_TABLE"]
     runs_table = os.environ["RUNS_TABLE"]
-    alert_topic_arn = os.getenv("ALERT_TOPIC_ARN")
     alert_on_empty = os.getenv("ALERT_ON_EMPTY", "true").lower() == "true"
+    router_event_bus = os.getenv("ROUTER_EVENT_BUS", "default")
     metar_retention_days = get_retention_days("METAR_RETENTION_DAYS", 30)
-    run_retention_days = get_retention_days("RUN_RETENTION_DAYS", 365)
+    run_retention_days = get_retention_days("RUN_RETENTION_DAYS", 30)
 
     try:
         xml_body = fetch_xml(source_url)
@@ -195,10 +259,15 @@ def lambda_handler(event, context):
             retention_days=run_retention_days,
             error_message=err,
         )
-        publish_alert(
-            alert_topic_arn,
-            subject="METAR Monitor Error",
-            message=f"METAR monitor failed at {checked_at}. Error: {err}. URL: {source_url}",
+        publish_station_alert_events(
+            station_alert_events(
+                station_configs=station_configs,
+                checked_at=checked_at,
+                source_url=source_url,
+                status_by_station={sid: "error" for sid in station_ids},
+                error_message=err,
+            ),
+            event_bus_name=router_event_bus,
         )
         return {
             "statusCode": 502,
@@ -216,16 +285,35 @@ def lambda_handler(event, context):
             retention_days=run_retention_days,
         )
         if alert_on_empty:
-            publish_alert(
-                alert_topic_arn,
-                subject="METAR Monitor Empty Result",
-                message=(
-                    f"METAR monitor returned 0 records at {checked_at}. "
-                    f"Stations: {','.join(station_ids)}. URL: {source_url}"
+            publish_station_alert_events(
+                station_alert_events(
+                    station_configs=station_configs,
+                    checked_at=checked_at,
+                    source_url=source_url,
+                    status_by_station={sid: "empty" for sid in station_ids},
                 ),
+                event_bus_name=router_event_bus,
             )
 
         return {"statusCode": 200, "body": json.dumps({"status": "empty", "count": 0})}
+
+    metar_counts: dict[str, int] = {sid: 0 for sid in station_ids}
+    for m in metars:
+        sid = m["station_id"]
+        if sid in metar_counts:
+            metar_counts[sid] += 1
+
+    station_statuses = {sid: ("ok" if metar_counts.get(sid, 0) > 0 else "empty") for sid in station_ids}
+    if alert_on_empty:
+        publish_station_alert_events(
+            station_alert_events(
+                station_configs=station_configs,
+                checked_at=checked_at,
+                source_url=source_url,
+                status_by_station=station_statuses,
+            ),
+            event_bus_name=router_event_bus,
+        )
 
     write_metars(
         metars_table_name=metars_table,

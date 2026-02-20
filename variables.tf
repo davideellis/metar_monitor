@@ -25,7 +25,7 @@ variable "metar_retention_days" {
 variable "run_retention_days" {
   type        = number
   description = "How many days to retain hourly availability/run status records"
-  default     = 365
+  default     = 30
 }
 
 variable "alert_on_empty" {

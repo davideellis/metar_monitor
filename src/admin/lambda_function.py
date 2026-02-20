@@ -1,8 +1,8 @@
 import json
 import os
+from decimal import Decimal
 
 import boto3
-from boto3.dynamodb.conditions import Attr
 
 dynamodb = boto3.resource("dynamodb")
 
@@ -16,8 +16,18 @@ def response(status_code: int, payload: dict) -> dict:
             "Access-Control-Allow-Methods": "GET,POST,DELETE,OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type,x-admin-token",
         },
-        "body": json.dumps(payload),
+        "body": json.dumps(to_json_safe(payload)),
     }
+
+
+def to_json_safe(value):
+    if isinstance(value, list):
+        return [to_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    return value
 
 
 def authorized(event) -> bool:
@@ -29,28 +39,76 @@ def authorized(event) -> bool:
     return incoming == configured
 
 
-def list_stations(table) -> list[dict]:
-    result = table.scan(ProjectionExpression="station_id, enabled")
+def stations_table():
+    return dynamodb.Table(os.environ["STATIONS_TABLE"])
+
+
+def owners_table():
+    return dynamodb.Table(os.environ["OWNERS_TABLE"])
+
+
+def list_stations() -> list[dict]:
+    result = stations_table().scan()
     items = result.get("Items", [])
     items.sort(key=lambda i: i.get("station_id", ""))
     return items
 
 
-def add_station(table, body: dict) -> dict:
+def list_owners() -> list[dict]:
+    result = owners_table().scan()
+    items = result.get("Items", [])
+    items.sort(key=lambda i: i.get("owner_id", ""))
+    return items
+
+
+def add_station(body: dict) -> dict:
     station_id = str(body.get("station_id", "")).strip().upper()
-    enabled = bool(body.get("enabled", True))
     if not station_id:
         return {"error": "station_id is required"}
-    table.put_item(Item={"station_id": station_id, "enabled": enabled})
-    return {"ok": True, "station_id": station_id, "enabled": enabled}
+    item = {
+        "station_id": station_id,
+        "enabled": bool(body.get("enabled", True)),
+        "owner_id": str(body.get("owner_id", "")).strip(),
+        "notify_on": str(body.get("notify_on", "both")).lower(),
+        "cooldown_minutes": int(body.get("cooldown_minutes", 60)),
+        "alerts_enabled": bool(body.get("alerts_enabled", True)),
+    }
+    if item["notify_on"] not in {"error", "empty", "both"}:
+        return {"error": "notify_on must be error|empty|both"}
+    stations_table().put_item(Item=item)
+    return {"ok": True, "item": item}
 
 
-def delete_station(table, station_id: str) -> dict:
+def add_owner(body: dict) -> dict:
+    owner_id = str(body.get("owner_id", "")).strip()
+    topic_arn = str(body.get("topic_arn", "")).strip()
+    if not owner_id:
+        return {"error": "owner_id is required"}
+    if not topic_arn:
+        return {"error": "topic_arn is required"}
+    item = {
+        "owner_id": owner_id,
+        "topic_arn": topic_arn,
+        "alerts_enabled": bool(body.get("alerts_enabled", True)),
+    }
+    owners_table().put_item(Item=item)
+    return {"ok": True, "item": item}
+
+
+def delete_station(station_id: str) -> dict:
     sid = station_id.strip().upper()
     if not sid:
         return {"error": "station_id is required"}
-    table.delete_item(Key={"station_id": sid})
+    stations_table().delete_item(Key={"station_id": sid})
     return {"ok": True, "station_id": sid}
+
+
+def delete_owner(owner_id: str) -> dict:
+    oid = owner_id.strip()
+    if not oid:
+        return {"error": "owner_id is required"}
+    owners_table().delete_item(Key={"owner_id": oid})
+    return {"ok": True, "owner_id": oid}
 
 
 def lambda_handler(event, context):
@@ -61,24 +119,30 @@ def lambda_handler(event, context):
     if not authorized(event):
         return response(401, {"error": "Unauthorized"})
 
-    table = dynamodb.Table(os.environ["STATIONS_TABLE"])
+    params = event.get("queryStringParameters") or {}
+    kind = (params.get("type") or "stations").lower()
     path_params = event.get("pathParameters") or {}
 
     try:
         if method == "GET":
-            items = list_stations(table)
-            return response(200, {"count": len(items), "items": items})
+            if kind == "owners":
+                items = list_owners()
+                return response(200, {"type": "owners", "count": len(items), "items": items})
+            items = list_stations()
+            return response(200, {"type": "stations", "count": len(items), "items": items})
 
         if method == "POST":
             body = json.loads(event.get("body") or "{}")
-            result = add_station(table, body)
+            result = add_owner(body) if kind == "owners" else add_station(body)
             if "error" in result:
                 return response(400, result)
             return response(200, result)
 
         if method == "DELETE":
-            station_id = path_params.get("station_id", "")
-            result = delete_station(table, station_id)
+            if "owner_id" in path_params:
+                result = delete_owner(path_params.get("owner_id", ""))
+            else:
+                result = delete_station(path_params.get("station_id", ""))
             if "error" in result:
                 return response(400, result)
             return response(200, result)

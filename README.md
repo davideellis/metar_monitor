@@ -7,15 +7,19 @@ Serverless METAR monitor on AWS using Terraform.
 - DynamoDB table for METAR records
 - DynamoDB table for collector run status (ok/empty/error)
 - DynamoDB table for tracked station configuration
+- DynamoDB table for notification owners
+- DynamoDB table for alert cooldown state
 - SNS topic for alerts (with optional email subscription)
 - Public History API (API Gateway + Lambda)
 - Admin API (API Gateway + Lambda) to add/remove tracked stations
+- Alert Router Lambda (EventBridge -> Lambda -> per-owner SNS topic)
 - Public S3 static site showing availability timeline + recent METAR history
 
 ## Repository layout
 - `src/collector/lambda_function.py`: pulls METAR XML, stores data, alerts on failures
 - `src/history/lambda_function.py`: serves historical runs and METAR entries
 - `src/admin/lambda_function.py`: admin endpoints for managing tracked stations
+- `src/router/lambda_function.py`: routes per-station failures to owner SNS topics with cooldown
 - `site/index.html.tmpl`: static timeline UI template
 - `site/admin.html.tmpl`: static admin UI template
 - `main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`: Terraform infra
@@ -55,9 +59,11 @@ Serverless METAR monitor on AWS using Terraform.
 ## Notes
 - Collector stores each METAR by `station_id + observation_time`.
 - Collector reads tracked stations from `metar-monitor-stations`; if empty, it falls back to `station_ids` variable.
+- Collector emits station-level alert events to EventBridge.
 - Run history stores each hourly invocation and status for availability reporting.
-- `ALERT_ON_EMPTY` controls whether zero-METAR responses send alerts.
+- `ALERT_ON_EMPTY` controls whether zero-METAR responses generate alert events.
 - Detailed METAR observation records are retained for `metar_retention_days` (default: `30`).
-- Availability/run records are retained for `run_retention_days` (default: `365`).
+- Availability/run records are retained for `run_retention_days` (default: `30`).
 - Retention is implemented with DynamoDB TTL (`expires_at`) and may take up to 48 hours to fully purge expired items.
 - Set `admin_token` in `terraform.tfvars`, then use it in the `x-admin-token` field on `admin.html`.
+- Configure owner records with `owner_id` and `topic_arn`, then assign `owner_id` on each station.
