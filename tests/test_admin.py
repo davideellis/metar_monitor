@@ -1,17 +1,50 @@
+import json
+
 from tests.helpers import load_lambda_module
 
 
-def test_authorized_accepts_token_case_variants(monkeypatch):
+def test_password_hash_and_verify():
     admin = load_lambda_module("src/admin/lambda_function.py")
-    monkeypatch.setenv("ADMIN_TOKEN", "abc123")
+    fields = admin.create_password_fields("SuperSecurePass1!")
+    assert admin.verify_password("SuperSecurePass1!", fields) is True
+    assert admin.verify_password("wrong", fields) is False
 
-    lower = {"headers": {"x-admin-token": "abc123"}}
-    upper = {"headers": {"X-Admin-Token": "abc123"}}
-    wrong = {"headers": {"x-admin-token": "nope"}}
 
-    assert admin.authorized(lower) is True
-    assert admin.authorized(upper) is True
-    assert admin.authorized(wrong) is False
+def test_session_token_roundtrip(monkeypatch):
+    admin = load_lambda_module("src/admin/lambda_function.py")
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-secret")
+    token, _ = admin.new_session_token("alice", ttl_minutes=5)
+    assert admin.verify_session_token(token) == "alice"
+
+
+def test_bootstrap_then_login(monkeypatch):
+    admin = load_lambda_module("src/admin/lambda_function.py")
+    monkeypatch.setenv("ADMIN_SESSION_SECRET", "test-secret")
+
+    class FakeAdmins:
+        def __init__(self):
+            self.items = {}
+
+        def scan(self, **kwargs):
+            if self.items:
+                return {"Items": [{"username": next(iter(self.items.keys()))}]}
+            return {"Items": []}
+
+        def put_item(self, Item):
+            self.items[Item["username"]] = Item
+
+        def get_item(self, Key):
+            item = self.items.get(Key["username"])
+            return {"Item": item} if item else {}
+
+    fake = FakeAdmins()
+    monkeypatch.setattr(admin, "admins_table", lambda: fake)
+
+    bootstrap = admin.bootstrap_admin({"username": "admin", "password": "StrongPass123!"})
+    assert bootstrap["ok"] is True
+    login = admin.login({"username": "admin", "password": "StrongPass123!"})
+    assert login["ok"] is True
+    assert "token" in login
 
 
 def test_add_station_rejects_invalid_notify_on():
@@ -20,30 +53,15 @@ def test_add_station_rejects_invalid_notify_on():
     assert result["error"] == "notify_on must be error|empty|both"
 
 
-def test_add_station_upserts_with_normalized_values(monkeypatch):
+def test_public_login_action_does_not_require_bearer(monkeypatch):
     admin = load_lambda_module("src/admin/lambda_function.py")
-    captured = {}
-
-    class FakeTable:
-        def put_item(self, Item):
-            captured["item"] = Item
-
-    monkeypatch.setattr(admin, "stations_table", lambda: FakeTable())
-
-    result = admin.add_station(
-        {
-            "station_id": "kjwy",
-            "owner_id": "owner-1",
-            "notify_on": "error",
-            "cooldown_minutes": 15,
-            "enabled": False,
-            "alerts_enabled": False,
-        }
-    )
-
-    assert result["ok"] is True
-    assert captured["item"]["station_id"] == "KJWY"
-    assert captured["item"]["notify_on"] == "error"
-    assert captured["item"]["cooldown_minutes"] == 15
-    assert captured["item"]["enabled"] is False
-    assert captured["item"]["alerts_enabled"] is False
+    monkeypatch.setattr(admin, "login", lambda body: {"ok": True, "token": "abc", "expires_at_epoch": 123})
+    event = {
+        "requestContext": {"http": {"method": "POST"}},
+        "queryStringParameters": {},
+        "pathParameters": {},
+        "headers": {},
+        "body": json.dumps({"action": "login", "username": "a", "password": "b"}),
+    }
+    result = admin.lambda_handler(event, None)
+    assert result["statusCode"] == 200

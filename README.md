@@ -35,7 +35,7 @@ Serverless METAR monitor on AWS using Terraform.
    ```bash
    copy terraform.tfvars.example terraform.tfvars
    ```
-2. Set a globally unique `site_bucket_name` in `terraform.tfvars`.
+2. Set a globally unique `site_bucket_name` and strong `admin_session_secret` in `terraform.tfvars`.
 3. Initialize/apply:
    ```bash
    terraform init
@@ -82,4 +82,7 @@ Serverless METAR monitor on AWS using Terraform.
 - Availability/run records are retained for `run_retention_days` (default: `30`).
 - Retention is implemented with DynamoDB TTL (`expires_at`) and may take up to 48 hours to fully purge expired items.
 - Set `admin_token` in `terraform.tfvars`, then use it in the `x-admin-token` field on `admin.html`.
+- Admin UI/API now use username/password login with bearer session tokens.
+- Use the Admin UI to bootstrap the first admin account, then log in and manage stations/owners.
+- Password reset is available via reset code flow in `admin.html`.
 - Configure owner records with `owner_id` and `topic_arn`, then assign `owner_id` on each station.

@@ -24,11 +24,27 @@
 <body>
   <div class="wrap">
     <h1>METAR Admin</h1>
-    <p class="muted">Manage owners and station-level notification policy.</p>
+    <p class="muted">Manage owners and station-level notification policy with username/password auth.</p>
 
     <div class="card">
+      <h3>Admin Login</h3>
       <div class="row">
-        <input id="token" placeholder="Admin token" style="min-width: 280px;" />
+        <input id="username" placeholder="Username" />
+        <input id="password" type="password" placeholder="Password" />
+        <button id="login">Login</button>
+        <button id="logout" class="btn-secondary">Logout</button>
+      </div>
+      <div class="row" style="margin-top: 8px;">
+        <input id="reset_user" placeholder="Reset username" />
+        <button id="request_reset" class="btn-secondary">Request Reset</button>
+        <input id="reset_code" placeholder="Reset code" style="width: 120px;" />
+        <input id="new_password" type="password" placeholder="New password" />
+        <button id="confirm_reset" class="btn-secondary">Confirm Reset</button>
+      </div>
+      <div class="row" style="margin-top: 8px;">
+        <input id="bootstrap_user" placeholder="Bootstrap username" />
+        <input id="bootstrap_password" type="password" placeholder="Bootstrap password" />
+        <button id="bootstrap" class="btn-secondary">Bootstrap Admin</button>
         <button id="load">Reload</button>
       </div>
     </div>
@@ -69,13 +85,20 @@
 
   <script>
     const API = "__ADMIN_API_URL__";
+    const TOKEN_KEY = "metar_admin_session_token";
     function el(id) { return document.getElementById(id); }
-    function token() { return el("token").value.trim(); }
+    function token() { return localStorage.getItem(TOKEN_KEY) || ""; }
+    function setToken(value) {
+      if (value) localStorage.setItem(TOKEN_KEY, value);
+      else localStorage.removeItem(TOKEN_KEY);
+    }
 
     async function req(path, method, body) {
+      const headers = { "content-type": "application/json" };
+      if (token()) headers.Authorization = `Bearer ${token()}`;
       const res = await fetch(`${API}${path}`, {
         method,
-        headers: { "content-type": "application/json", "x-admin-token": token() },
+        headers,
         body: body ? JSON.stringify(body) : undefined
       });
       const text = await res.text();
@@ -175,6 +198,10 @@
     }
 
     async function loadAll() {
+      if (!token()) {
+        el("status").textContent = "Not logged in.";
+        return;
+      }
       try {
         await Promise.all([loadOwners(), loadStations()]);
       } catch (err) {
@@ -183,6 +210,72 @@
     }
 
     el("load").addEventListener("click", loadAll);
+
+    el("login").addEventListener("click", async () => {
+      try {
+        const data = await req("", "POST", {
+          action: "login",
+          username: el("username").value.trim(),
+          password: el("password").value
+        });
+        setToken(data.token || "");
+        el("password").value = "";
+        el("status").textContent = "Login successful.";
+        await loadAll();
+      } catch (err) {
+        el("status").textContent = `Login failed: ${err.message}`;
+      }
+    });
+
+    el("logout").addEventListener("click", () => {
+      setToken("");
+      el("owner_rows").innerHTML = "";
+      el("station_rows").innerHTML = "";
+      el("status").textContent = "Logged out.";
+    });
+
+    el("bootstrap").addEventListener("click", async () => {
+      try {
+        const data = await req("", "POST", {
+          action: "bootstrap",
+          username: el("bootstrap_user").value.trim(),
+          password: el("bootstrap_password").value
+        });
+        setToken(data.token || "");
+        el("bootstrap_password").value = "";
+        el("status").textContent = "Bootstrap successful.";
+        await loadAll();
+      } catch (err) {
+        el("status").textContent = `Bootstrap failed: ${err.message}`;
+      }
+    });
+
+    el("request_reset").addEventListener("click", async () => {
+      try {
+        const data = await req("", "POST", {
+          action: "request_reset",
+          username: el("reset_user").value.trim()
+        });
+        el("status").textContent = `Reset code generated. Code: ${data.reset_code} (expires soon).`;
+      } catch (err) {
+        el("status").textContent = `Reset request failed: ${err.message}`;
+      }
+    });
+
+    el("confirm_reset").addEventListener("click", async () => {
+      try {
+        await req("", "POST", {
+          action: "confirm_reset",
+          username: el("reset_user").value.trim(),
+          reset_code: el("reset_code").value.trim(),
+          new_password: el("new_password").value
+        });
+        el("new_password").value = "";
+        el("status").textContent = "Password reset complete. You can log in now.";
+      } catch (err) {
+        el("status").textContent = `Reset failed: ${err.message}`;
+      }
+    });
 
     el("add_owner").addEventListener("click", async () => {
       try {
@@ -215,6 +308,8 @@
         el("status").textContent = `Add station failed: ${err.message}`;
       }
     });
+
+    loadAll();
   </script>
 </body>
 </html>

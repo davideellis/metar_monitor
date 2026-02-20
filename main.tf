@@ -97,6 +97,17 @@ resource "aws_dynamodb_table" "owners" {
   }
 }
 
+resource "aws_dynamodb_table" "admins" {
+  name         = "${local.service_name}-admins"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "username"
+
+  attribute {
+    name = "username"
+    type = "S"
+  }
+}
+
 resource "aws_dynamodb_table" "alert_state" {
   name         = "${local.service_name}-alert-state"
   billing_mode = "PAY_PER_REQUEST"
@@ -357,8 +368,14 @@ resource "aws_iam_role_policy" "admin_policy" {
         Action = ["dynamodb:Scan", "dynamodb:PutItem", "dynamodb:DeleteItem"]
         Resource = [
           aws_dynamodb_table.stations.arn,
-          aws_dynamodb_table.owners.arn
+          aws_dynamodb_table.owners.arn,
+          aws_dynamodb_table.admins.arn
         ]
+      },
+      {
+        Effect = "Allow"
+        Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"]
+        Resource = [aws_dynamodb_table.admins.arn]
       }
     ]
   })
@@ -376,9 +393,10 @@ resource "aws_lambda_function" "admin" {
 
   environment {
     variables = {
-      STATIONS_TABLE = aws_dynamodb_table.stations.name
-      OWNERS_TABLE   = aws_dynamodb_table.owners.name
-      ADMIN_TOKEN    = var.admin_token
+      STATIONS_TABLE       = aws_dynamodb_table.stations.name
+      OWNERS_TABLE         = aws_dynamodb_table.owners.name
+      ADMINS_TABLE         = aws_dynamodb_table.admins.name
+      ADMIN_SESSION_SECRET = var.admin_session_secret != "" ? var.admin_session_secret : var.admin_token
     }
   }
 }
@@ -395,7 +413,7 @@ resource "aws_apigatewayv2_api" "admin" {
   cors_configuration {
     allow_origins = ["*"]
     allow_methods = ["GET", "POST", "DELETE", "OPTIONS"]
-    allow_headers = ["content-type", "x-admin-token"]
+    allow_headers = ["content-type", "authorization"]
     max_age       = 3600
   }
 }

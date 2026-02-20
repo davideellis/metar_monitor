@@ -48,7 +48,14 @@ variable "alert_email" {
 
 variable "admin_token" {
   type        = string
-  description = "Admin API token used in x-admin-token header"
+  description = "Legacy admin auth secret (kept for backwards compatibility)"
+  default     = ""
+  sensitive   = true
+}
+
+variable "admin_session_secret" {
+  type        = string
+  description = "HMAC secret used to sign admin session tokens"
   default     = ""
   sensitive   = true
 }

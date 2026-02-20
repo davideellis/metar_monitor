@@ -6,5 +6,6 @@ run_retention_days   = 30
 stale_threshold_hours = 2
 alert_on_empty   = true
 alert_email      = "you@example.com"
-admin_token      = "replace-with-strong-token"
+admin_token      = "legacy-secret-optional"
+admin_session_secret = "replace-with-strong-session-secret"
 site_bucket_name = "replace-with-unique-metar-site-bucket"
