@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>METAR Availability Timeline</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #0f172a;
+      --muted: #334155;
+      --ok: #15803d;
+      --empty: #a16207;
+      --error: #b91c1c;
+      --barbg: #cbd5e1;
+      --accent: #0369a1;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      color: var(--text);
+      background: radial-gradient(circle at top left, #e0f2fe 0%, var(--bg) 45%);
+      min-height: 100vh;
+    }
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .panel {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 10px 25px rgba(2, 6, 23, 0.08);
+    }
+    h1 { margin-top: 0; font-size: 1.4rem; }
+    p { color: var(--muted); }
+    .controls {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    input, button {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      font-size: 0.95rem;
+    }
+    button {
+      background: var(--accent);
+      border: none;
+      color: #fff;
+      cursor: pointer;
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin: 16px 0;
+    }
+    .stat {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px;
+    }
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
+      gap: 4px;
+      margin: 18px 0;
+    }
+    .bar {
+      height: 26px;
+      border-radius: 4px;
+      background: var(--barbg);
+      transition: transform .1s ease;
+    }
+    .bar:hover { transform: translateY(-2px); }
+    .ok { background: var(--ok); }
+    .empty { background: var(--empty); }
+    .error { background: var(--error); }
+    .legend { display: flex; gap: 14px; color: var(--muted); font-size: 0.9rem; }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
+    ul { padding-left: 18px; }
+    li { margin: 6px 0; }
+    .small { font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <h1>METAR Availability Timeline</h1>
+      <p>Hourly collector run health and latest METAR records.</p>
+
+      <div class="controls">
+        <input id="station" placeholder="Station ID" value="${default_station}" />
+        <input id="limit" type="number" min="24" max="500" value="168" />
+        <button id="refresh">Refresh</button>
+      </div>
+
+      <div class="summary" id="summary"></div>
+      <div class="legend">
+        <span><i class="dot" style="background: var(--ok)"></i>OK</span>
+        <span><i class="dot" style="background: var(--empty)"></i>Empty</span>
+        <span><i class="dot" style="background: var(--error)"></i>Error</span>
+      </div>
+
+      <div class="timeline" id="timeline"></div>
+      <p class="small" id="status"></p>
+
+      <h2>Recent METARs</h2>
+      <ul id="metars"></ul>
+    </div>
+  </div>
+
+  <script>
+    const API = "${api_url}";
+
+    function el(id) { return document.getElementById(id); }
+
+    function fmtRun(run) {
+      const time = run.checked_at_utc || "unknown";
+      return `${time} | ${run.status} | count=${run.metar_count ?? 0}`;
+    }
+
+    async function fetchJson(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    }
+
+    function renderRuns(runs) {
+      const timeline = el("timeline");
+      timeline.innerHTML = "";
+      runs.forEach(run => {
+        const bar = document.createElement("div");
+        bar.className = `bar ${run.status || "empty"}`;
+        bar.title = fmtRun(run);
+        timeline.appendChild(bar);
+      });
+
+      const ok = runs.filter(x => x.status === "ok").length;
+      const empty = runs.filter(x => x.status === "empty").length;
+      const error = runs.filter(x => x.status === "error").length;
+      const availability = runs.length ? ((ok / runs.length) * 100).toFixed(1) : "0.0";
+
+      el("summary").innerHTML = `
+        <div class="stat"><strong>Total Runs</strong><div>${runs.length}</div></div>
+        <div class="stat"><strong>OK</strong><div>${ok}</div></div>
+        <div class="stat"><strong>Empty</strong><div>${empty}</div></div>
+        <div class="stat"><strong>Error</strong><div>${error}</div></div>
+        <div class="stat"><strong>Availability</strong><div>${availability}%</div></div>
+      `;
+    }
+
+    function renderMetars(items) {
+      const list = el("metars");
+      list.innerHTML = "";
+      items.slice(-20).reverse().forEach(m => {
+        const li = document.createElement("li");
+        li.textContent = `${m.observation_time} | ${m.station_id} | ${m.flight_category || "N/A"} | ${m.raw_text || ""}`;
+        list.appendChild(li);
+      });
+    }
+
+    async function load() {
+      const station = (el("station").value || "${default_station}").toUpperCase();
+      const limit = Math.max(24, Math.min(Number(el("limit").value || 168), 500));
+      el("status").textContent = "Loading...";
+
+      try {
+        const [runs, metars] = await Promise.all([
+          fetchJson(`${API}?type=runs&limit=${limit}`),
+          fetchJson(`${API}?type=metars&station=${encodeURIComponent(station)}&limit=${limit}`)
+        ]);
+        renderRuns(runs.items || []);
+        renderMetars(metars.items || []);
+        el("status").textContent = `Loaded ${runs.count || 0} runs and ${metars.count || 0} METAR entries for ${station}.`;
+      } catch (err) {
+        el("status").textContent = `Failed to load data: ${err.message}`;
+      }
+    }
+
+    el("refresh").addEventListener("click", load);
+    load();
+  </script>
+</body>
+</html>
