@@ -91,6 +91,7 @@
     .error { background: var(--error); }
     .missing { background: var(--missing); }
     .station-block { margin-bottom: 10px; }
+    .hidden { display: none; }
     .metar-item {
       display: block;
       padding: 6px 8px;
@@ -125,7 +126,7 @@
     </div>
 
     <div class="panel">
-      <h2>Hourly Checkpoints (Stacked)</h2>
+      <h2>Hourly Checkpoints</h2>
       <p class="small">X-axis shows UTC date/time for each checkpoint.</p>
       <div class="grid-wrap">
         <table id="checkpointTable"></table>
@@ -134,7 +135,8 @@
 
     <div class="panel">
       <h2>All Recent METAR Links</h2>
-      <div id="allMetars"></div>
+      <button id="toggleMetars" type="button">Show</button>
+      <div id="allMetars" class="hidden"></div>
     </div>
   </div>
 
@@ -143,6 +145,7 @@
     const DEFAULT_STATION = "__DEFAULT_STATION__";
 
     function el(id) { return document.getElementById(id); }
+    let metarsExpanded = false;
 
     function fmtDate(iso) {
       const d = new Date(iso);
@@ -293,6 +296,12 @@
         el("status").textContent = `Failed to load data: ${err.message}`;
       }
     }
+
+    el("toggleMetars").addEventListener("click", () => {
+      metarsExpanded = !metarsExpanded;
+      el("allMetars").classList.toggle("hidden", !metarsExpanded);
+      el("toggleMetars").textContent = metarsExpanded ? "Hide" : "Show";
+    });
 
     el("refresh").addEventListener("click", load);
     load();
