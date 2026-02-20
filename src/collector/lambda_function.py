@@ -7,6 +7,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 
 import boto3
+from boto3.dynamodb.conditions import Attr
 
 BASE_URL = "https://aviationweather.gov/api/data/metar"
 dynamodb = boto3.resource("dynamodb")
@@ -40,6 +41,20 @@ def get_retention_days(env_name: str, default_value: int) -> int:
 
 
 def get_station_ids() -> list[str]:
+    stations_table_name = os.getenv("STATIONS_TABLE", "")
+    if stations_table_name:
+        stations_table = dynamodb.Table(stations_table_name)
+        result = stations_table.scan(
+            ProjectionExpression="station_id, enabled",
+            FilterExpression=Attr("enabled").eq(True),
+        )
+        items = result.get("Items", [])
+        stations = sorted(
+            {str(i.get("station_id", "")).strip().upper() for i in items if i.get("station_id")}
+        )
+        if stations:
+            return stations
+
     raw = os.getenv("STATION_IDS", "KJWY")
     return [x.strip().upper() for x in raw.split(",") if x.strip()]
 

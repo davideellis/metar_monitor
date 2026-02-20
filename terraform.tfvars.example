@@ -5,4 +5,5 @@ metar_retention_days = 30
 run_retention_days   = 365
 alert_on_empty   = true
 alert_email      = "you@example.com"
+admin_token      = "replace-with-strong-token"
 site_bucket_name = "replace-with-unique-metar-site-bucket"

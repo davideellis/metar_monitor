@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>METAR Admin</title>
+  <style>
+    body { font-family: "Segoe UI", Tahoma, sans-serif; margin: 0; background: #f8fafc; color: #0f172a; }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
+    .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+    input, button { padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; }
+    button { background: #0f766e; color: #fff; border: 0; cursor: pointer; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { text-align: left; border-bottom: 1px solid #e2e8f0; padding: 10px 6px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .muted { color: #475569; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>METAR Admin</h1>
+    <p class="muted">Manage stations tracked by the hourly collector.</p>
+
+    <div class="card">
+      <div class="row">
+        <input id="token" placeholder="Admin token" style="min-width: 280px;" />
+        <button id="load">Load Stations</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Add Station</h3>
+      <div class="row">
+        <input id="station" placeholder="KJFK" />
+        <button id="add">Add</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Tracked Stations</h3>
+      <table>
+        <thead><tr><th>Station</th><th>Enabled</th><th>Action</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="status" class="muted"></p>
+    </div>
+  </div>
+
+  <script>
+    const API = "__ADMIN_API_URL__";
+    function el(id) { return document.getElementById(id); }
+    function token() { return el("token").value.trim(); }
+
+    async function req(path, method, body) {
+      const res = await fetch(`${API}${path}`, {
+        method,
+        headers: { "content-type": "application/json", "x-admin-token": token() },
+        body: body ? JSON.stringify(body) : undefined
+      });
+      const text = await res.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch (_) {}
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    }
+
+    async function load() {
+      try {
+        const data = await req("", "GET");
+        const rows = el("rows");
+        rows.innerHTML = "";
+        (data.items || []).forEach(item => {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `<td>${item.station_id}</td><td>${item.enabled ? "true" : "false"}</td><td><button data-id="${item.station_id}">Delete</button></td>`;
+          tr.querySelector("button").addEventListener("click", async () => {
+            await req(`stations/${item.station_id}`, "DELETE");
+            await load();
+          });
+          rows.appendChild(tr);
+        });
+        el("status").textContent = `Loaded ${data.count || 0} stations.`;
+      } catch (err) {
+        el("status").textContent = `Load failed: ${err.message}`;
+      }
+    }
+
+    el("load").addEventListener("click", load);
+    el("add").addEventListener("click", async () => {
+      const station = (el("station").value || "").trim().toUpperCase();
+      if (!station) return;
+      try {
+        await req("", "POST", { station_id: station, enabled: true });
+        el("station").value = "";
+        await load();
+      } catch (err) {
+        el("status").textContent = `Add failed: ${err.message}`;
+      }
+    });
+  </script>
+</body>
+</html>

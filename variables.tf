@@ -40,6 +40,13 @@ variable "alert_email" {
   default     = ""
 }
 
+variable "admin_token" {
+  type        = string
+  description = "Admin API token used in x-admin-token header"
+  default     = ""
+  sensitive   = true
+}
+
 variable "site_bucket_name" {
   type        = string
   description = "Unique S3 bucket name for the static timeline site"
