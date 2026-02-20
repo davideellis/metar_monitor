@@ -14,6 +14,11 @@
     th, td { text-align: left; border-bottom: 1px solid #e2e8f0; padding: 10px 6px; font-size: 0.9rem; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .muted { color: #475569; font-size: 0.9rem; }
+    .row-actions { display: flex; gap: 6px; }
+    .btn-secondary { background: #334155; }
+    .btn-danger { background: #b91c1c; }
+    .cell-input { width: 100%; min-width: 100px; padding: 6px; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
@@ -55,7 +60,7 @@
         <button id="add_station">Add Station</button>
       </div>
       <table>
-        <thead><tr><th>Station</th><th>Owner</th><th>Notify On</th><th>Cooldown (min)</th><th>Enabled</th><th>Action</th></tr></thead>
+        <thead><tr><th>Station</th><th>Owner</th><th>Notify On</th><th>Cooldown (min)</th><th>Enabled</th><th>Alerts Enabled</th><th>Action</th></tr></thead>
         <tbody id="station_rows"></tbody>
       </table>
       <p id="status" class="muted"></p>
@@ -101,9 +106,67 @@
       rows.innerHTML = "";
       (data.items || []).forEach(item => {
         const tr = document.createElement("tr");
-        tr.innerHTML = `<td>${item.station_id}</td><td>${item.owner_id || ""}</td><td>${item.notify_on || "both"}</td><td>${item.cooldown_minutes || 60}</td><td>${item.enabled ? "true" : "false"}</td><td><button>Delete</button></td>`;
-        tr.querySelector("button").addEventListener("click", async () => {
-          await req(`stations/${item.station_id}`, "DELETE");
+        const stationId = item.station_id;
+        const ownerId = item.owner_id || "";
+        const notifyOn = item.notify_on || "both";
+        const cooldown = Number(item.cooldown_minutes || 60);
+        const enabled = item.enabled !== false;
+        const alertsEnabled = item.alerts_enabled !== false;
+
+        tr.innerHTML = `
+          <td><strong>${stationId}</strong></td>
+          <td data-field="owner">${ownerId}</td>
+          <td data-field="notify_on">${notifyOn}</td>
+          <td data-field="cooldown">${cooldown}</td>
+          <td data-field="enabled">${enabled ? "true" : "false"}</td>
+          <td data-field="alerts_enabled">${alertsEnabled ? "true" : "false"}</td>
+          <td class="row-actions">
+            <button class="edit btn-secondary">Edit</button>
+            <button class="save hidden">Save</button>
+            <button class="cancel btn-secondary hidden">Cancel</button>
+            <button class="delete btn-danger">Delete</button>
+          </td>
+        `;
+
+        const editBtn = tr.querySelector(".edit");
+        const saveBtn = tr.querySelector(".save");
+        const cancelBtn = tr.querySelector(".cancel");
+        const deleteBtn = tr.querySelector(".delete");
+
+        const enterEditMode = () => {
+          tr.querySelector('[data-field="owner"]').innerHTML = `<input class="cell-input" data-input="owner" value="${ownerId}" />`;
+          tr.querySelector('[data-field="notify_on"]').innerHTML = `
+            <select class="cell-input" data-input="notify_on">
+              <option value="both" ${notifyOn === "both" ? "selected" : ""}>both</option>
+              <option value="error" ${notifyOn === "error" ? "selected" : ""}>error</option>
+              <option value="empty" ${notifyOn === "empty" ? "selected" : ""}>empty</option>
+            </select>
+          `;
+          tr.querySelector('[data-field="cooldown"]').innerHTML = `<input class="cell-input" data-input="cooldown" type="number" min="1" value="${cooldown}" />`;
+          tr.querySelector('[data-field="enabled"]').innerHTML = `<select class="cell-input" data-input="enabled"><option value="true" ${enabled ? "selected" : ""}>true</option><option value="false" ${!enabled ? "selected" : ""}>false</option></select>`;
+          tr.querySelector('[data-field="alerts_enabled"]').innerHTML = `<select class="cell-input" data-input="alerts_enabled"><option value="true" ${alertsEnabled ? "selected" : ""}>true</option><option value="false" ${!alertsEnabled ? "selected" : ""}>false</option></select>`;
+          editBtn.classList.add("hidden");
+          saveBtn.classList.remove("hidden");
+          cancelBtn.classList.remove("hidden");
+        };
+
+        editBtn.addEventListener("click", enterEditMode);
+        cancelBtn.addEventListener("click", loadStations);
+        saveBtn.addEventListener("click", async () => {
+          const payload = {
+            station_id: stationId,
+            owner_id: tr.querySelector('[data-input="owner"]').value.trim(),
+            notify_on: tr.querySelector('[data-input="notify_on"]').value,
+            cooldown_minutes: Number(tr.querySelector('[data-input="cooldown"]').value || 60),
+            enabled: tr.querySelector('[data-input="enabled"]').value === "true",
+            alerts_enabled: tr.querySelector('[data-input="alerts_enabled"]').value === "true"
+          };
+          await req("?type=stations", "POST", payload);
+          await loadStations();
+          el("status").textContent = `Updated ${stationId}.`;
+        });
+        deleteBtn.addEventListener("click", async () => {
+          await req(`stations/${stationId}`, "DELETE");
           await loadAll();
         });
         rows.appendChild(tr);
