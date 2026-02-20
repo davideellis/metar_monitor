@@ -78,7 +78,8 @@
       text-align: left;
       min-width: 100px;
     }
-    th.time-head { font-weight: 600; color: #475569; min-width: 52px; }
+    th.date-head { font-weight: 500; color: #64748b; min-width: 52px; font-size: 0.62rem; }
+    th.time-head { font-weight: 600; color: #475569; min-width: 52px; font-size: 0.68rem; }
     .cell {
       width: 12px;
       height: 12px;
@@ -143,12 +144,17 @@
 
     function el(id) { return document.getElementById(id); }
 
-    function fmtShort(iso) {
+    function fmtDate(iso) {
       const d = new Date(iso);
       const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
       const dd = String(d.getUTCDate()).padStart(2, "0");
+      return `${mm}/${dd}`;
+    }
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
       const hh = String(d.getUTCHours()).padStart(2, "0");
-      return `${mm}/${dd} ${hh}:00Z`;
+      return `${hh}:00Z`;
     }
 
     function hourKey(iso) {
@@ -194,8 +200,14 @@
       const table = el("checkpointTable");
       const checkpoints = runs.map(r => r.checked_at_utc);
 
-      let html = "<thead><tr><th class='sticky'>Row</th>";
-      checkpoints.forEach(cp => { html += `<th class='time-head'>${fmtShort(cp)}</th>`; });
+      let html = "<thead><tr><th class='sticky' rowspan='2'>Row</th>";
+      checkpoints.forEach((cp, idx) => {
+        const curr = fmtDate(cp);
+        const prev = idx > 0 ? fmtDate(checkpoints[idx - 1]) : "";
+        html += `<th class='date-head'>${curr !== prev ? curr : ""}</th>`;
+      });
+      html += "</tr><tr>";
+      checkpoints.forEach(cp => { html += `<th class='time-head'>${fmtTime(cp)}</th>`; });
       html += "</tr></thead><tbody>";
 
       html += "<tr><td class='sticky'><strong>Collector Run</strong></td>";
@@ -212,7 +224,7 @@
         checkpoints.forEach(cp => {
           const present = hours.has(hourKey(cp));
           const cls = present ? "ok" : "missing";
-          html += `<td title="${sid} @ ${fmtShort(cp)}"><div class="cell ${cls}"></div></td>`;
+          html += `<td title="${sid} @ ${fmtDate(cp)} ${fmtTime(cp)}"><div class="cell ${cls}"></div></td>`;
         });
         html += "</tr>";
       });
