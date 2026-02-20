@@ -45,18 +45,6 @@
       font-size: 0.85rem;
     }
     button { background: var(--accent); border: none; color: #fff; cursor: pointer; }
-    .summary {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 8px;
-      margin: 10px 0;
-    }
-    .stat {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      padding: 8px;
-    }
     .legend { display: flex; gap: 10px; color: var(--muted); font-size: 0.78rem; flex-wrap: wrap; }
     .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
     .small { font-size: 0.76rem; color: var(--muted); margin: 4px 0; }
@@ -91,6 +79,7 @@
     .error { background: var(--error); }
     .missing { background: var(--missing); }
     .station-block { margin-bottom: 10px; }
+    .metrics { font-size: 0.64rem; color: #475569; margin-top: 3px; line-height: 1.2; }
     .hidden { display: none; }
     .metar-item {
       display: block;
@@ -114,13 +103,12 @@
         <button id="refresh">Refresh</button>
       </div>
 
-      <div class="summary" id="summary"></div>
       <div class="legend">
         <span><i class="dot" style="background: var(--ok)"></i>Run OK</span>
         <span><i class="dot" style="background: var(--empty)"></i>Run Empty</span>
         <span><i class="dot" style="background: var(--error)"></i>Run Error</span>
-        <span><i class="dot" style="background: var(--ok)"></i>Station has METAR for checkpoint hour</span>
-        <span><i class="dot" style="background: var(--missing)"></i>No METAR for checkpoint hour</span>
+        <span><i class="dot" style="background: var(--ok)"></i>Station OK at checkpoint</span>
+        <span><i class="dot" style="background: var(--empty)"></i>Station Empty at checkpoint</span>
       </div>
       <p class="small" id="status"></p>
     </div>
@@ -176,27 +164,32 @@
       return await res.json();
     }
 
-    function renderSummary(runs) {
-      const ok = runs.filter(x => x.status === "ok").length;
-      const empty = runs.filter(x => x.status === "empty").length;
-      const error = runs.filter(x => x.status === "error").length;
-      const availability = runs.length ? ((ok / runs.length) * 100).toFixed(1) : "0.0";
-
-      el("summary").innerHTML = `
-        <div class="stat"><strong>Total Checkpoints</strong><div>${runs.length}</div></div>
-        <div class="stat"><strong>OK</strong><div>${ok}</div></div>
-        <div class="stat"><strong>Empty</strong><div>${empty}</div></div>
-        <div class="stat"><strong>Error</strong><div>${error}</div></div>
-        <div class="stat"><strong>Availability</strong><div>${availability}%</div></div>
-      `;
-    }
-
     function buildMetarHourSet(items) {
       const set = new Set();
       (items || []).forEach(m => {
         if (m.observation_time) set.add(hourKey(m.observation_time));
       });
       return set;
+    }
+
+    function stationStatusForCheckpoint(run, hasMetar) {
+      if (run.status === "error") return "error";
+      if (run.status === "empty") return "empty";
+      return hasMetar ? "ok" : "empty";
+    }
+
+    function stationMetrics(runs, stationHourSet) {
+      let ok = 0, empty = 0, error = 0;
+      runs.forEach(run => {
+        const hasMetar = stationHourSet.has(hourKey(run.checked_at_utc));
+        const status = stationStatusForCheckpoint(run, hasMetar);
+        if (status === "ok") ok += 1;
+        else if (status === "error") error += 1;
+        else empty += 1;
+      });
+      const total = runs.length;
+      const availability = total ? ((ok / total) * 100).toFixed(1) : "0.0";
+      return { total, ok, empty, error, availability };
     }
 
     function renderCheckpointTable(runs, stations, stationMetars) {
@@ -223,10 +216,12 @@
       stations.forEach(station => {
         const sid = station.station_id;
         const hours = buildMetarHourSet(stationMetars[sid] || []);
-        html += `<tr><td class="sticky"><strong>${sid}</strong></td>`;
+        const m = stationMetrics(runs, hours);
+        html += `<tr><td class="sticky"><strong>${sid}</strong><div class="metrics">CP ${m.total} | OK ${m.ok} | Empty ${m.empty} | Error ${m.error} | Avail ${m.availability}%</div></td>`;
         checkpoints.forEach(cp => {
+          const run = runs.find(r => r.checked_at_utc === cp);
           const present = hours.has(hourKey(cp));
-          const cls = present ? "ok" : "missing";
+          const cls = stationStatusForCheckpoint(run, present);
           html += `<td title="${sid} @ ${fmtDate(cp)} ${fmtTime(cp)}"><div class="cell ${cls}"></div></td>`;
         });
         html += "</tr>";
@@ -288,7 +283,6 @@
         const stationMetars = {};
         stations.forEach((s, idx) => { stationMetars[s.station_id] = metarResults[idx].items || []; });
 
-        renderSummary(runs);
         renderCheckpointTable(runs, stations, stationMetars);
         renderAllMetars(stations, stationMetars);
         el("status").textContent = `Loaded ${runs.length} checkpoints and ${stations.length} stations.`;
