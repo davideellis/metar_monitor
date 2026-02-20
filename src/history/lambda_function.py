@@ -1,5 +1,6 @@
 import json
 import os
+from decimal import Decimal
 
 import boto3
 from boto3.dynamodb.conditions import Key
@@ -18,7 +19,21 @@ def cors_headers() -> dict:
 
 
 def response(status_code: int, payload: dict) -> dict:
-    return {"statusCode": status_code, "headers": cors_headers(), "body": json.dumps(payload)}
+    return {
+        "statusCode": status_code,
+        "headers": cors_headers(),
+        "body": json.dumps(to_json_safe(payload)),
+    }
+
+
+def to_json_safe(value):
+    if isinstance(value, list):
+        return [to_json_safe(v) for v in value]
+    if isinstance(value, dict):
+        return {k: to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, Decimal):
+        return int(value) if value % 1 == 0 else float(value)
+    return value
 
 
 def parse_limit(value: str | None, default_value: int) -> int:

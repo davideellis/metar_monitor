@@ -97,7 +97,7 @@
       <p>Hourly collector run health and latest METAR records.</p>
 
       <div class="controls">
-        <input id="station" placeholder="Station ID" value="${default_station}" />
+        <input id="station" placeholder="Station ID" value="__DEFAULT_STATION__" />
         <input id="limit" type="number" min="24" max="500" value="168" />
         <button id="refresh">Refresh</button>
       </div>
@@ -118,7 +118,7 @@
   </div>
 
   <script>
-    const API = "${api_url}";
+    const API = "__API_URL__";
 
     function el(id) { return document.getElementById(id); }
 
@@ -168,7 +168,7 @@
     }
 
     async function load() {
-      const station = (el("station").value || "${default_station}").toUpperCase();
+      const station = (el("station").value || "__DEFAULT_STATION__").toUpperCase();
       const limit = Math.max(24, Math.min(Number(el("limit").value || 168), 500));
       el("status").textContent = "Loading...";
 

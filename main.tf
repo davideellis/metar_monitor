@@ -216,16 +216,44 @@ resource "aws_lambda_function" "history" {
   }
 }
 
-resource "aws_lambda_function_url" "history" {
-  function_name      = aws_lambda_function.history.function_name
-  authorization_type = "NONE"
+resource "aws_apigatewayv2_api" "history" {
+  name          = "${local.service_name}-history-api"
+  protocol_type = "HTTP"
 
-  cors {
+  cors_configuration {
     allow_origins = ["*"]
     allow_methods = ["GET", "OPTIONS"]
     allow_headers = ["content-type"]
     max_age       = 3600
   }
+}
+
+resource "aws_apigatewayv2_integration" "history_lambda" {
+  api_id                 = aws_apigatewayv2_api.history.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.history.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_route" "history_get" {
+  api_id    = aws_apigatewayv2_api.history.id
+  route_key = "GET /"
+  target    = "integrations/${aws_apigatewayv2_integration.history_lambda.id}"
+}
+
+resource "aws_apigatewayv2_stage" "history" {
+  api_id      = aws_apigatewayv2_api.history.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_lambda_permission" "allow_history_apigw" {
+  statement_id  = "AllowExecutionFromApiGateway"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.history.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.history.execution_arn}/*/*"
 }
 
 resource "aws_s3_bucket" "site" {
@@ -277,8 +305,13 @@ resource "aws_s3_object" "site_index" {
   bucket       = aws_s3_bucket.site.id
   key          = "index.html"
   content_type = "text/html"
-  content = templatefile("${path.module}/site/index.html.tmpl", {
-    api_url         = aws_lambda_function_url.history.function_url
-    default_station = local.default_station
-  })
+  content = replace(
+    replace(
+      file("${path.module}/site/index.html.tmpl"),
+      "__API_URL__",
+      aws_apigatewayv2_stage.history.invoke_url
+    ),
+    "__DEFAULT_STATION__",
+    local.default_station
+  )
 }

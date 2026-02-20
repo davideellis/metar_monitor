@@ -3,7 +3,7 @@ output "collector_lambda_name" {
 }
 
 output "history_api_url" {
-  value = aws_lambda_function_url.history.function_url
+  value = aws_apigatewayv2_stage.history.invoke_url
 }
 
 output "site_url" {
