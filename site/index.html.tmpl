@@ -48,31 +48,43 @@
     .legend { display: flex; gap: 10px; color: var(--muted); font-size: 0.78rem; flex-wrap: wrap; }
     .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
     .small { font-size: 0.76rem; color: var(--muted); margin: 4px 0; }
-    .grid-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
-    table { border-collapse: collapse; min-width: 780px; width: 100%; }
-    th, td {
-      border-bottom: 1px solid #e2e8f0;
-      border-right: 1px solid #e2e8f0;
-      padding: 4px 5px;
+    .grid-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; }
+    .axis-row {
+      display: grid;
+      gap: 2px;
+      margin-left: 230px;
+      margin-bottom: 6px;
+    }
+    .axis-tick {
+      font-size: 0.62rem;
+      color: #64748b;
       text-align: center;
-      font-size: 0.72rem;
       white-space: nowrap;
+      width: 12px;
+      overflow: visible;
     }
-    th.sticky, td.sticky {
-      position: sticky;
-      left: 0;
-      background: #fff;
-      z-index: 1;
-      text-align: left;
-      min-width: 100px;
+    .heatmap-row {
+      display: flex;
+      align-items: center;
+      margin-bottom: 6px;
+      gap: 8px;
     }
-    th.date-head { font-weight: 500; color: #64748b; min-width: 52px; font-size: 0.62rem; }
-    th.time-head { font-weight: 600; color: #475569; min-width: 52px; font-size: 0.68rem; }
+    .heatmap-label {
+      width: 220px;
+      flex: 0 0 220px;
+      font-size: 0.78rem;
+    }
+    .heatmap-grid {
+      display: grid;
+      grid-auto-flow: column;
+      gap: 2px;
+    }
     .cell {
       width: 12px;
       height: 12px;
       border-radius: 2px;
-      margin: 0 auto;
+      display: inline-block;
+      cursor: default;
     }
     .ok { background: var(--ok); }
     .empty { background: var(--empty); }
@@ -114,10 +126,10 @@
     </div>
 
     <div class="panel">
-      <h2>Hourly Checkpoints</h2>
-      <p class="small">X-axis shows UTC date/time for each checkpoint.</p>
+      <h2>Station Heatmaps</h2>
+      <p class="small">Each tracked station has its own timeline heatmap. Hover a cell for UTC date/time and status.</p>
       <div class="grid-wrap">
-        <table id="checkpointTable"></table>
+        <div id="heatmap"></div>
       </div>
     </div>
 
@@ -146,6 +158,15 @@
       const d = new Date(iso);
       const hh = String(d.getUTCHours()).padStart(2, "0");
       return `${hh}:00Z`;
+    }
+    function fmtDateTime(iso) {
+      const d = new Date(iso);
+      const yyyy = d.getUTCFullYear();
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      const mi = String(d.getUTCMinutes()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd} ${hh}:${mi}Z`;
     }
 
     function hourKey(iso) {
@@ -192,43 +213,41 @@
       return { total, ok, empty, error, availability };
     }
 
-    function renderCheckpointTable(runs, stations, stationMetars) {
-      const table = el("checkpointTable");
+    function renderHeatmap(runs, stations, stationMetars) {
+      const box = el("heatmap");
       const checkpoints = runs.map(r => r.checked_at_utc);
-
-      let html = "<thead><tr><th class='sticky' rowspan='2'>Row</th>";
+      if (!checkpoints.length) {
+        box.innerHTML = `<p class="small">No checkpoints available yet.</p>`;
+        return;
+      }
+      let html = `<div class="axis-row" style="grid-template-columns: repeat(${checkpoints.length}, 12px)">`;
       checkpoints.forEach((cp, idx) => {
         const curr = fmtDate(cp);
         const prev = idx > 0 ? fmtDate(checkpoints[idx - 1]) : "";
-        html += `<th class='date-head'>${curr !== prev ? curr : ""}</th>`;
+        html += `<div class="axis-tick" title="${fmtDateTime(cp)}">${curr !== prev ? curr : ""}</div>`;
       });
-      html += "</tr><tr>";
-      checkpoints.forEach(cp => { html += `<th class='time-head'>${fmtTime(cp)}</th>`; });
-      html += "</tr></thead><tbody>";
-
-      html += "<tr><td class='sticky'><strong>Collector Run</strong></td>";
+      html += `</div>`;
+      html += `<div class="heatmap-row"><div class="heatmap-label"><strong>Collector Run</strong></div><div class="heatmap-grid" style="grid-template-columns: repeat(${checkpoints.length}, 12px)">`;
       runs.forEach(run => {
         const cls = run.status === "ok" ? "ok" : run.status === "error" ? "error" : "empty";
-        html += `<td title="${run.checked_at_utc} | ${run.status}"><div class="cell ${cls}"></div></td>`;
+        html += `<span class="cell ${cls}" title="Collector | ${fmtDateTime(run.checked_at_utc)} | ${run.status.toUpperCase()}"></span>`;
       });
-      html += "</tr>";
+      html += `</div></div>`;
 
       stations.forEach(station => {
         const sid = station.station_id;
         const hours = buildMetarHourSet(stationMetars[sid] || []);
         const m = stationMetrics(runs, hours);
-        html += `<tr><td class="sticky"><strong>${sid}</strong><div class="metrics">CP ${m.total} | OK ${m.ok} | Empty ${m.empty} | Error ${m.error} | Avail ${m.availability}%</div></td>`;
+        html += `<div class="heatmap-row"><div class="heatmap-label"><strong>${sid}</strong><div class="metrics">CP ${m.total} | OK ${m.ok} | Empty ${m.empty} | Error ${m.error} | Avail ${m.availability}%</div></div><div class="heatmap-grid" style="grid-template-columns: repeat(${checkpoints.length}, 12px)">`;
         checkpoints.forEach(cp => {
           const run = runs.find(r => r.checked_at_utc === cp);
           const present = hours.has(hourKey(cp));
           const cls = stationStatusForCheckpoint(run, present);
-          html += `<td title="${sid} @ ${fmtDate(cp)} ${fmtTime(cp)}"><div class="cell ${cls}"></div></td>`;
+          html += `<span class="cell ${cls}" title="${sid} | ${fmtDateTime(cp)} | ${cls.toUpperCase()}"></span>`;
         });
-        html += "</tr>";
+        html += `</div></div>`;
       });
-
-      html += "</tbody>";
-      table.innerHTML = html;
+      box.innerHTML = html;
     }
 
     function renderAllMetars(stations, stationMetars) {
@@ -283,7 +302,7 @@
         const stationMetars = {};
         stations.forEach((s, idx) => { stationMetars[s.station_id] = metarResults[idx].items || []; });
 
-        renderCheckpointTable(runs, stations, stationMetars);
+        renderHeatmap(runs, stations, stationMetars);
         renderAllMetars(stations, stationMetars);
         el("status").textContent = `Loaded ${runs.length} checkpoints and ${stations.length} stations.`;
       } catch (err) {
