@@ -206,10 +206,11 @@ resource "aws_iam_role_policy" "history_policy" {
       },
       {
         Effect = "Allow"
-        Action = ["dynamodb:Query"]
+        Action = ["dynamodb:Query", "dynamodb:Scan"]
         Resource = [
           aws_dynamodb_table.metars.arn,
-          aws_dynamodb_table.runs.arn
+          aws_dynamodb_table.runs.arn,
+          aws_dynamodb_table.stations.arn
         ]
       }
     ]
@@ -230,6 +231,7 @@ resource "aws_lambda_function" "history" {
     variables = {
       METARS_TABLE    = aws_dynamodb_table.metars.name
       RUNS_TABLE      = aws_dynamodb_table.runs.name
+      STATIONS_TABLE  = aws_dynamodb_table.stations.name
       DEFAULT_STATION = local.default_station
     }
   }

@@ -70,6 +70,20 @@ def get_metars(station_id: str, limit: int) -> list[dict]:
     return items
 
 
+def get_stations() -> list[dict]:
+    stations_table_name = os.getenv("STATIONS_TABLE", "")
+    if not stations_table_name:
+        return [{"station_id": os.getenv("DEFAULT_STATION", "KJWY"), "enabled": True}]
+
+    stations_table = dynamodb.Table(stations_table_name)
+    result = stations_table.scan(ProjectionExpression="station_id, enabled")
+    items = result.get("Items", [])
+    if not items:
+        return [{"station_id": os.getenv("DEFAULT_STATION", "KJWY"), "enabled": True}]
+    items.sort(key=lambda i: i.get("station_id", ""))
+    return items
+
+
 def lambda_handler(event, context):
     if event.get("requestContext", {}).get("http", {}).get("method") == "OPTIONS":
         return {"statusCode": 200, "headers": cors_headers(), "body": ""}
@@ -81,6 +95,19 @@ def lambda_handler(event, context):
     limit = parse_limit(params.get("limit"), default_value=168)
 
     try:
+        if data_type == "stations":
+            items = get_stations()
+            enabled = [i["station_id"] for i in items if i.get("enabled")]
+            return response(
+                200,
+                {
+                    "type": "stations",
+                    "count": len(items),
+                    "items": items,
+                    "enabled_stations": enabled,
+                },
+            )
+
         if data_type == "metars":
             items = get_metars(station_id=station, limit=limit)
             return response(

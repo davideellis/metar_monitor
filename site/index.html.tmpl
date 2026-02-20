@@ -24,8 +24,10 @@
       background: radial-gradient(circle at top left, #e0f2fe 0%, var(--bg) 45%);
       min-height: 100vh;
     }
+    a { color: #075985; text-decoration: none; }
+    a:hover { text-decoration: underline; }
     .wrap {
-      max-width: 960px;
+      max-width: 1000px;
       margin: 0 auto;
       padding: 24px;
     }
@@ -34,8 +36,10 @@
       border-radius: 12px;
       padding: 20px;
       box-shadow: 0 10px 25px rgba(2, 6, 23, 0.08);
+      margin-bottom: 14px;
     }
     h1 { margin-top: 0; font-size: 1.4rem; }
+    h2 { margin-bottom: 8px; }
     p { color: var(--muted); }
     .controls {
       display: flex;
@@ -85,16 +89,36 @@
     .error { background: var(--error); }
     .legend { display: flex; gap: 14px; color: var(--muted); font-size: 0.9rem; }
     .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
-    ul { padding-left: 18px; }
-    li { margin: 6px 0; }
     .small { font-size: 0.85rem; color: var(--muted); }
+    .station-links, .metar-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .pill {
+      display: inline-block;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      padding: 8px 10px;
+      border-radius: 999px;
+      font-size: 0.9rem;
+    }
+    .metar-item {
+      display: block;
+      padding: 8px 10px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="panel">
       <h1>METAR Availability Timeline</h1>
-      <p>Hourly collector run health and latest METAR records. <a href="admin.html">Admin</a></p>
+      <p>Hourly collector run health and recent METAR links. <a href="admin.html">Admin</a></p>
 
       <div class="controls">
         <input id="station" placeholder="Station ID" value="__DEFAULT_STATION__" />
@@ -111,9 +135,18 @@
 
       <div class="timeline" id="timeline"></div>
       <p class="small" id="status"></p>
+    </div>
 
-      <h2>Recent METARs</h2>
-      <ul id="metars"></ul>
+    <div class="panel">
+      <h2>Monitored METARs</h2>
+      <p class="small">Click a station to load its recent METAR links.</p>
+      <div class="station-links" id="stations"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Recent METAR Links</h2>
+      <p class="small" id="metarTitle"></p>
+      <div class="metar-links" id="metars"></div>
     </div>
   </div>
 
@@ -125,6 +158,10 @@
     function fmtRun(run) {
       const time = run.checked_at_utc || "unknown";
       return `${time} | ${run.status} | count=${run.metar_count ?? 0}`;
+    }
+
+    function metarLink(station, time) {
+      return `https://aviationweather.gov/data/metar/?id=${encodeURIComponent(station)}&hours=3`;
     }
 
     async function fetchJson(url) {
@@ -157,29 +194,60 @@
       `;
     }
 
-    function renderMetars(items) {
-      const list = el("metars");
-      list.innerHTML = "";
-      items.slice(-20).reverse().forEach(m => {
-        const li = document.createElement("li");
-        li.textContent = `${m.observation_time} | ${m.station_id} | ${m.flight_category || "N/A"} | ${m.raw_text || ""}`;
-        list.appendChild(li);
+    function renderStations(stations) {
+      const box = el("stations");
+      box.innerHTML = "";
+      stations.forEach(s => {
+        const a = document.createElement("a");
+        a.className = "pill";
+        a.href = "#";
+        a.textContent = s.station_id;
+        a.addEventListener("click", async (e) => {
+          e.preventDefault();
+          el("station").value = s.station_id;
+          await loadMetarsForStation(s.station_id);
+        });
+        box.appendChild(a);
       });
+    }
+
+    function renderMetarLinks(station, items) {
+      const list = el("metars");
+      const title = el("metarTitle");
+      list.innerHTML = "";
+      title.textContent = `${station} (${items.length} shown)`;
+
+      items.slice(-20).reverse().forEach(m => {
+        const a = document.createElement("a");
+        a.className = "metar-item";
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.href = metarLink(station, m.observation_time || "");
+        a.textContent = `${m.observation_time} | ${m.flight_category || "N/A"} | ${m.raw_text || ""}`;
+        list.appendChild(a);
+      });
+    }
+
+    async function loadMetarsForStation(station) {
+      const limit = Math.max(24, Math.min(Number(el("limit").value || 168), 500));
+      const metars = await fetchJson(`${API}?type=metars&station=${encodeURIComponent(station)}&limit=${limit}`);
+      renderMetarLinks(station, metars.items || []);
+      return metars;
     }
 
     async function load() {
       const station = (el("station").value || "__DEFAULT_STATION__").toUpperCase();
-      const limit = Math.max(24, Math.min(Number(el("limit").value || 168), 500));
       el("status").textContent = "Loading...";
 
       try {
-        const [runs, metars] = await Promise.all([
-          fetchJson(`${API}?type=runs&limit=${limit}`),
-          fetchJson(`${API}?type=metars&station=${encodeURIComponent(station)}&limit=${limit}`)
+        const [runs, stations, metars] = await Promise.all([
+          fetchJson(`${API}?type=runs&limit=168`),
+          fetchJson(`${API}?type=stations`),
+          loadMetarsForStation(station)
         ]);
         renderRuns(runs.items || []);
-        renderMetars(metars.items || []);
-        el("status").textContent = `Loaded ${runs.count || 0} runs and ${metars.count || 0} METAR entries for ${station}.`;
+        renderStations(stations.items || []);
+        el("status").textContent = `Loaded ${runs.count || 0} runs, ${stations.count || 0} monitored stations, and ${metars.count || 0} METAR entries for ${station}.`;
       } catch (err) {
         el("status").textContent = `Failed to load data: ${err.message}`;
       }
