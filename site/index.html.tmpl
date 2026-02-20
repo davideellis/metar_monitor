@@ -13,7 +13,7 @@
       --ok: #15803d;
       --empty: #a16207;
       --error: #b91c1c;
-      --barbg: #cbd5e1;
+      --missing: #94a3b8;
       --accent: #0369a1;
     }
     * { box-sizing: border-box; }
@@ -26,11 +26,7 @@
     }
     a { color: #075985; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    .wrap {
-      max-width: 1000px;
-      margin: 0 auto;
-      padding: 24px;
-    }
+    .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; }
     .panel {
       background: var(--card);
       border-radius: 12px;
@@ -41,24 +37,14 @@
     h1 { margin-top: 0; font-size: 1.4rem; }
     h2 { margin-bottom: 8px; }
     p { color: var(--muted); }
-    .controls {
-      display: flex;
-      gap: 12px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
+    .controls { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
     input, button {
       padding: 10px 12px;
       border-radius: 8px;
       border: 1px solid #cbd5e1;
       font-size: 0.95rem;
     }
-    button {
-      background: var(--accent);
-      border: none;
-      color: #fff;
-      cursor: pointer;
-    }
+    button { background: var(--accent); border: none; color: #fff; cursor: pointer; }
     .summary {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -71,39 +57,39 @@
       border-radius: 8px;
       padding: 10px;
     }
-    .timeline {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(14px, 1fr));
-      gap: 4px;
-      margin: 18px 0;
+    .legend { display: flex; gap: 14px; color: var(--muted); font-size: 0.9rem; flex-wrap: wrap; }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
+    .small { font-size: 0.85rem; color: var(--muted); }
+    .grid-wrap { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 8px; }
+    table { border-collapse: collapse; min-width: 980px; width: 100%; }
+    th, td {
+      border-bottom: 1px solid #e2e8f0;
+      border-right: 1px solid #e2e8f0;
+      padding: 8px;
+      text-align: center;
+      font-size: 0.82rem;
+      white-space: nowrap;
     }
-    .bar {
-      height: 26px;
+    th.sticky, td.sticky {
+      position: sticky;
+      left: 0;
+      background: #fff;
+      z-index: 1;
+      text-align: left;
+      min-width: 130px;
+    }
+    th.time-head { font-weight: 600; color: #475569; min-width: 72px; }
+    .cell {
+      width: 20px;
+      height: 20px;
       border-radius: 4px;
-      background: var(--barbg);
-      transition: transform .1s ease;
+      margin: 0 auto;
     }
-    .bar:hover { transform: translateY(-2px); }
     .ok { background: var(--ok); }
     .empty { background: var(--empty); }
     .error { background: var(--error); }
-    .legend { display: flex; gap: 14px; color: var(--muted); font-size: 0.9rem; }
-    .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; }
-    .small { font-size: 0.85rem; color: var(--muted); }
-    .station-links, .metar-links {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      margin-top: 8px;
-    }
-    .pill {
-      display: inline-block;
-      border: 1px solid #cbd5e1;
-      background: #f8fafc;
-      padding: 8px 10px;
-      border-radius: 999px;
-      font-size: 0.9rem;
-    }
+    .missing { background: var(--missing); }
+    .station-block { margin-bottom: 18px; }
     .metar-item {
       display: block;
       padding: 8px 10px;
@@ -118,49 +104,59 @@
   <div class="wrap">
     <div class="panel">
       <h1>METAR Availability Timeline</h1>
-      <p>Hourly collector run health and recent METAR links. <a href="admin.html">Admin</a></p>
+      <p>Hourly checkpoints stacked by monitored station. <a href="admin.html">Admin</a></p>
 
       <div class="controls">
-        <input id="station" placeholder="Station ID" value="__DEFAULT_STATION__" />
-        <input id="limit" type="number" min="24" max="500" value="168" />
+        <input id="limit" type="number" min="24" max="240" value="72" />
         <button id="refresh">Refresh</button>
       </div>
 
       <div class="summary" id="summary"></div>
       <div class="legend">
-        <span><i class="dot" style="background: var(--ok)"></i>OK</span>
-        <span><i class="dot" style="background: var(--empty)"></i>Empty</span>
-        <span><i class="dot" style="background: var(--error)"></i>Error</span>
+        <span><i class="dot" style="background: var(--ok)"></i>Run OK</span>
+        <span><i class="dot" style="background: var(--empty)"></i>Run Empty</span>
+        <span><i class="dot" style="background: var(--error)"></i>Run Error</span>
+        <span><i class="dot" style="background: var(--ok)"></i>Station has METAR for checkpoint hour</span>
+        <span><i class="dot" style="background: var(--missing)"></i>No METAR for checkpoint hour</span>
       </div>
-
-      <div class="timeline" id="timeline"></div>
       <p class="small" id="status"></p>
     </div>
 
     <div class="panel">
-      <h2>Monitored METARs</h2>
-      <p class="small">Click a station to load its recent METAR links.</p>
-      <div class="station-links" id="stations"></div>
+      <h2>Hourly Checkpoints (Stacked)</h2>
+      <p class="small">X-axis shows UTC date/time for each checkpoint.</p>
+      <div class="grid-wrap">
+        <table id="checkpointTable"></table>
+      </div>
     </div>
 
     <div class="panel">
-      <h2>Recent METAR Links</h2>
-      <p class="small" id="metarTitle"></p>
-      <div class="metar-links" id="metars"></div>
+      <h2>All Recent METAR Links</h2>
+      <div id="allMetars"></div>
     </div>
   </div>
 
   <script>
     const API = "__API_URL__";
+    const DEFAULT_STATION = "__DEFAULT_STATION__";
 
     function el(id) { return document.getElementById(id); }
 
-    function fmtRun(run) {
-      const time = run.checked_at_utc || "unknown";
-      return `${time} | ${run.status} | count=${run.metar_count ?? 0}`;
+    function fmtShort(iso) {
+      const d = new Date(iso);
+      const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+      const dd = String(d.getUTCDate()).padStart(2, "0");
+      const hh = String(d.getUTCHours()).padStart(2, "0");
+      return `${mm}/${dd} ${hh}:00Z`;
     }
 
-    function metarLink(station, time) {
+    function hourKey(iso) {
+      const d = new Date(iso);
+      d.setUTCMinutes(0, 0, 0);
+      return d.toISOString();
+    }
+
+    function metarLink(station) {
       return `https://aviationweather.gov/data/metar/?id=${encodeURIComponent(station)}&hours=3`;
     }
 
@@ -170,23 +166,14 @@
       return await res.json();
     }
 
-    function renderRuns(runs) {
-      const timeline = el("timeline");
-      timeline.innerHTML = "";
-      runs.forEach(run => {
-        const bar = document.createElement("div");
-        bar.className = `bar ${run.status || "empty"}`;
-        bar.title = fmtRun(run);
-        timeline.appendChild(bar);
-      });
-
+    function renderSummary(runs) {
       const ok = runs.filter(x => x.status === "ok").length;
       const empty = runs.filter(x => x.status === "empty").length;
       const error = runs.filter(x => x.status === "error").length;
       const availability = runs.length ? ((ok / runs.length) * 100).toFixed(1) : "0.0";
 
       el("summary").innerHTML = `
-        <div class="stat"><strong>Total Runs</strong><div>${runs.length}</div></div>
+        <div class="stat"><strong>Total Checkpoints</strong><div>${runs.length}</div></div>
         <div class="stat"><strong>OK</strong><div>${ok}</div></div>
         <div class="stat"><strong>Empty</strong><div>${empty}</div></div>
         <div class="stat"><strong>Error</strong><div>${error}</div></div>
@@ -194,60 +181,101 @@
       `;
     }
 
-    function renderStations(stations) {
-      const box = el("stations");
-      box.innerHTML = "";
-      stations.forEach(s => {
-        const a = document.createElement("a");
-        a.className = "pill";
-        a.href = "#";
-        a.textContent = s.station_id;
-        a.addEventListener("click", async (e) => {
-          e.preventDefault();
-          el("station").value = s.station_id;
-          await loadMetarsForStation(s.station_id);
+    function buildMetarHourSet(items) {
+      const set = new Set();
+      (items || []).forEach(m => {
+        if (m.observation_time) set.add(hourKey(m.observation_time));
+      });
+      return set;
+    }
+
+    function renderCheckpointTable(runs, stations, stationMetars) {
+      const table = el("checkpointTable");
+      const checkpoints = runs.map(r => r.checked_at_utc);
+
+      let html = "<thead><tr><th class='sticky'>Row</th>";
+      checkpoints.forEach(cp => { html += `<th class='time-head'>${fmtShort(cp)}</th>`; });
+      html += "</tr></thead><tbody>";
+
+      html += "<tr><td class='sticky'><strong>Collector Run</strong></td>";
+      runs.forEach(run => {
+        const cls = run.status === "ok" ? "ok" : run.status === "error" ? "error" : "empty";
+        html += `<td title="${run.checked_at_utc} | ${run.status}"><div class="cell ${cls}"></div></td>`;
+      });
+      html += "</tr>";
+
+      stations.forEach(station => {
+        const sid = station.station_id;
+        const hours = buildMetarHourSet(stationMetars[sid] || []);
+        html += `<tr><td class="sticky"><strong>${sid}</strong></td>`;
+        checkpoints.forEach(cp => {
+          const present = hours.has(hourKey(cp));
+          const cls = present ? "ok" : "missing";
+          html += `<td title="${sid} @ ${fmtShort(cp)}"><div class="cell ${cls}"></div></td>`;
         });
-        box.appendChild(a);
+        html += "</tr>";
       });
+
+      html += "</tbody>";
+      table.innerHTML = html;
     }
 
-    function renderMetarLinks(station, items) {
-      const list = el("metars");
-      const title = el("metarTitle");
-      list.innerHTML = "";
-      title.textContent = `${station} (${items.length} shown)`;
+    function renderAllMetars(stations, stationMetars) {
+      const box = el("allMetars");
+      box.innerHTML = "";
 
-      items.slice(-20).reverse().forEach(m => {
-        const a = document.createElement("a");
-        a.className = "metar-item";
-        a.target = "_blank";
-        a.rel = "noopener noreferrer";
-        a.href = metarLink(station, m.observation_time || "");
-        a.textContent = `${m.observation_time} | ${m.flight_category || "N/A"} | ${m.raw_text || ""}`;
-        list.appendChild(a);
+      stations.forEach(station => {
+        const sid = station.station_id;
+        const items = (stationMetars[sid] || []).slice(-12).reverse();
+        const section = document.createElement("div");
+        section.className = "station-block";
+        section.innerHTML = `<h3>${sid}</h3>`;
+
+        items.forEach(m => {
+          const a = document.createElement("a");
+          a.className = "metar-item";
+          a.target = "_blank";
+          a.rel = "noopener noreferrer";
+          a.href = metarLink(sid);
+          a.textContent = `${m.observation_time || ""} | ${m.flight_category || "N/A"} | ${m.raw_text || ""}`;
+          section.appendChild(a);
+        });
+
+        if (!items.length) {
+          const p = document.createElement("p");
+          p.className = "small";
+          p.textContent = "No recent METAR rows found.";
+          section.appendChild(p);
+        }
+
+        box.appendChild(section);
       });
-    }
-
-    async function loadMetarsForStation(station) {
-      const limit = Math.max(24, Math.min(Number(el("limit").value || 168), 500));
-      const metars = await fetchJson(`${API}?type=metars&station=${encodeURIComponent(station)}&limit=${limit}`);
-      renderMetarLinks(station, metars.items || []);
-      return metars;
     }
 
     async function load() {
-      const station = (el("station").value || "__DEFAULT_STATION__").toUpperCase();
+      const limit = Math.max(24, Math.min(Number(el("limit").value || 72), 240));
       el("status").textContent = "Loading...";
 
       try {
-        const [runs, stations, metars] = await Promise.all([
-          fetchJson(`${API}?type=runs&limit=168`),
-          fetchJson(`${API}?type=stations`),
-          loadMetarsForStation(station)
+        const [runsRes, stationsRes] = await Promise.all([
+          fetchJson(`${API}?type=runs&limit=${limit}`),
+          fetchJson(`${API}?type=stations`)
         ]);
-        renderRuns(runs.items || []);
-        renderStations(stations.items || []);
-        el("status").textContent = `Loaded ${runs.count || 0} runs, ${stations.count || 0} monitored stations, and ${metars.count || 0} METAR entries for ${station}.`;
+
+        const runs = runsRes.items || [];
+        const stations = (stationsRes.items || []).filter(x => x.enabled !== false);
+        if (!stations.length) stations.push({ station_id: DEFAULT_STATION, enabled: true });
+
+        const metarResults = await Promise.all(
+          stations.map(s => fetchJson(`${API}?type=metars&station=${encodeURIComponent(s.station_id)}&limit=${limit * 2}`))
+        );
+        const stationMetars = {};
+        stations.forEach((s, idx) => { stationMetars[s.station_id] = metarResults[idx].items || []; });
+
+        renderSummary(runs);
+        renderCheckpointTable(runs, stations, stationMetars);
+        renderAllMetars(stations, stationMetars);
+        el("status").textContent = `Loaded ${runs.length} checkpoints and ${stations.length} stations.`;
       } catch (err) {
         el("status").textContent = `Failed to load data: ${err.message}`;
       }
