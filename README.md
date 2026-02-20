@@ -50,3 +50,6 @@ Serverless METAR monitor on AWS using Terraform.
 - Collector stores each METAR by `station_id + observation_time`.
 - Run history stores each hourly invocation and status for availability reporting.
 - `ALERT_ON_EMPTY` controls whether zero-METAR responses send alerts.
+- Detailed METAR observation records are retained for `metar_retention_days` (default: `30`).
+- Availability/run records are retained for `run_retention_days` (default: `365`).
+- Retention is implemented with DynamoDB TTL (`expires_at`) and may take up to 48 hours to fully purge expired items.

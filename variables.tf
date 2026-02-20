@@ -16,6 +16,18 @@ variable "lookback_hours" {
   default     = 2.5
 }
 
+variable "metar_retention_days" {
+  type        = number
+  description = "How many days to retain detailed METAR observation records"
+  default     = 30
+}
+
+variable "run_retention_days" {
+  type        = number
+  description = "How many days to retain hourly availability/run status records"
+  default     = 365
+}
+
 variable "alert_on_empty" {
   type        = bool
   description = "Whether to send SNS alert when API returns no METARs"

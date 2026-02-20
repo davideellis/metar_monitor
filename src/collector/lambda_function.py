@@ -4,7 +4,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import boto3
 
@@ -15,6 +15,28 @@ sns = boto3.client("sns")
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def parse_utc_iso(iso_str: str) -> datetime:
+    normalized = iso_str.replace("Z", "+00:00")
+    return datetime.fromisoformat(normalized).astimezone(timezone.utc)
+
+
+def expiration_from_iso(iso_str: str, days: int) -> int:
+    dt = parse_utc_iso(iso_str)
+    return int((dt + timedelta(days=days)).timestamp())
+
+
+def expiration_from_now(days: int) -> int:
+    return int((datetime.now(timezone.utc) + timedelta(days=days)).timestamp())
+
+
+def get_retention_days(env_name: str, default_value: int) -> int:
+    raw = os.getenv(env_name, str(default_value))
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default_value
 
 
 def get_station_ids() -> list[str]:
@@ -68,15 +90,25 @@ def parse_metar_xml(xml_text: str) -> list[dict]:
     return metars
 
 
-def write_metars(metars_table_name: str, metars: list[dict], collected_at: str) -> None:
+def write_metars(
+    metars_table_name: str,
+    metars: list[dict],
+    collected_at: str,
+    retention_days: int,
+) -> None:
     table = dynamodb.Table(metars_table_name)
     with table.batch_writer(overwrite_by_pkeys=["station_id", "observation_time"]) as batch:
         for m in metars:
+            try:
+                expires_at = expiration_from_iso(m["observation_time"], retention_days)
+            except ValueError:
+                expires_at = expiration_from_now(retention_days)
             batch.put_item(
                 Item={
                     "station_id": m["station_id"],
                     "observation_time": m["observation_time"],
                     "collected_at": collected_at,
+                    "expires_at": expires_at,
                     "temp_c": m.get("temp_c"),
                     "dewpoint_c": m.get("dewpoint_c"),
                     "wind_dir_degrees": m.get("wind_dir_degrees"),
@@ -96,6 +128,7 @@ def write_run(
     station_ids: list[str],
     source_url: str,
     metar_count: int,
+    retention_days: int,
     error_message: str | None = None,
 ) -> None:
     table = dynamodb.Table(runs_table_name)
@@ -106,6 +139,7 @@ def write_run(
         "station_ids": station_ids,
         "source_url": source_url,
         "metar_count": metar_count,
+        "expires_at": expiration_from_now(retention_days),
     }
 
     if error_message:
@@ -128,6 +162,8 @@ def lambda_handler(event, context):
     runs_table = os.environ["RUNS_TABLE"]
     alert_topic_arn = os.getenv("ALERT_TOPIC_ARN")
     alert_on_empty = os.getenv("ALERT_ON_EMPTY", "true").lower() == "true"
+    metar_retention_days = get_retention_days("METAR_RETENTION_DAYS", 30)
+    run_retention_days = get_retention_days("RUN_RETENTION_DAYS", 365)
 
     try:
         xml_body = fetch_xml(source_url)
@@ -141,6 +177,7 @@ def lambda_handler(event, context):
             station_ids=station_ids,
             source_url=source_url,
             metar_count=0,
+            retention_days=run_retention_days,
             error_message=err,
         )
         publish_alert(
@@ -161,6 +198,7 @@ def lambda_handler(event, context):
             station_ids=station_ids,
             source_url=source_url,
             metar_count=0,
+            retention_days=run_retention_days,
         )
         if alert_on_empty:
             publish_alert(
@@ -174,7 +212,12 @@ def lambda_handler(event, context):
 
         return {"statusCode": 200, "body": json.dumps({"status": "empty", "count": 0})}
 
-    write_metars(metars_table_name=metars_table, metars=metars, collected_at=checked_at)
+    write_metars(
+        metars_table_name=metars_table,
+        metars=metars,
+        collected_at=checked_at,
+        retention_days=metar_retention_days,
+    )
     write_run(
         runs_table_name=runs_table,
         checked_at_utc=checked_at,
@@ -182,6 +225,7 @@ def lambda_handler(event, context):
         station_ids=station_ids,
         source_url=source_url,
         metar_count=len(metars),
+        retention_days=run_retention_days,
     )
 
     payload = {

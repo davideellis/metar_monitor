@@ -34,6 +34,11 @@ resource "aws_dynamodb_table" "metars" {
     name = "observation_time"
     type = "S"
   }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
+  }
 }
 
 resource "aws_dynamodb_table" "runs" {
@@ -50,6 +55,11 @@ resource "aws_dynamodb_table" "runs" {
   attribute {
     name = "checked_at_utc"
     type = "S"
+  }
+
+  ttl {
+    attribute_name = "expires_at"
+    enabled        = true
   }
 }
 
@@ -118,12 +128,14 @@ resource "aws_lambda_function" "collector" {
 
   environment {
     variables = {
-      STATION_IDS     = join(",", var.station_ids)
-      LOOKBACK_HOURS  = tostring(var.lookback_hours)
-      METARS_TABLE    = aws_dynamodb_table.metars.name
-      RUNS_TABLE      = aws_dynamodb_table.runs.name
-      ALERT_TOPIC_ARN = aws_sns_topic.alerts.arn
-      ALERT_ON_EMPTY  = tostring(var.alert_on_empty)
+      STATION_IDS           = join(",", var.station_ids)
+      LOOKBACK_HOURS        = tostring(var.lookback_hours)
+      METARS_TABLE          = aws_dynamodb_table.metars.name
+      RUNS_TABLE            = aws_dynamodb_table.runs.name
+      METAR_RETENTION_DAYS  = tostring(var.metar_retention_days)
+      RUN_RETENTION_DAYS    = tostring(var.run_retention_days)
+      ALERT_TOPIC_ARN       = aws_sns_topic.alerts.arn
+      ALERT_ON_EMPTY        = tostring(var.alert_on_empty)
     }
   }
 }
