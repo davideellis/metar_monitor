@@ -39,19 +39,14 @@
     </div>
 
     <div class="card">
-      <h3>Admin Login & Reset</h3>
-      <div class="row">
+      <h3>Admin Session</h3>
+      <div id="loginControls" class="row">
         <input id="username" placeholder="Username" />
         <input id="password" type="password" placeholder="Password" />
         <button id="login">Login</button>
-        <button id="logout" class="btn-secondary">Logout</button>
       </div>
-      <div class="row" style="margin-top: 8px;">
-        <input id="reset_user" placeholder="Reset username" />
-        <button id="request_reset" class="btn-secondary">Request Reset</button>
-        <input id="reset_code" placeholder="Reset code" style="width: 120px;" />
-        <input id="new_password" type="password" placeholder="New password" />
-        <button id="confirm_reset" class="btn-secondary">Confirm Reset</button>
+      <div id="logoutControls" class="row hidden">
+        <button id="logout" class="btn-secondary">Logout</button>
       </div>
       <div class="row" style="margin-top: 8px;"><button id="load">Reload</button></div>
     </div>
@@ -88,6 +83,17 @@
       </table>
       <p id="status" class="muted"></p>
     </div>
+
+    <div class="card">
+      <h3>Password Reset</h3>
+      <div class="row">
+        <input id="reset_user" placeholder="Reset username" />
+        <button id="request_reset" class="btn-secondary">Request Reset</button>
+        <input id="reset_code" placeholder="Reset code" style="width: 120px;" />
+        <input id="new_password" type="password" placeholder="New password" />
+        <button id="confirm_reset" class="btn-secondary">Confirm Reset</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -98,6 +104,11 @@
     function setToken(value) {
       if (value) localStorage.setItem(TOKEN_KEY, value);
       else localStorage.removeItem(TOKEN_KEY);
+    }
+    function renderAuthState() {
+      const loggedIn = !!token();
+      el("loginControls").classList.toggle("hidden", loggedIn);
+      el("logoutControls").classList.toggle("hidden", !loggedIn);
     }
 
     async function req(path, method, body) {
@@ -236,6 +247,7 @@
         });
         setToken(data.token || "");
         el("password").value = "";
+        renderAuthState();
         el("status").textContent = "Login successful.";
         await loadAll();
       } catch (err) {
@@ -245,6 +257,7 @@
 
     el("logout").addEventListener("click", () => {
       setToken("");
+      renderAuthState();
       el("owner_rows").innerHTML = "";
       el("station_rows").innerHTML = "";
       el("status").textContent = "Logged out.";
@@ -259,6 +272,7 @@
         });
         setToken(data.token || "");
         el("bootstrap_password").value = "";
+        renderAuthState();
         el("status").textContent = "Bootstrap successful.";
         await loadBootstrapStatus();
         await loadAll();
@@ -327,6 +341,7 @@
     });
 
     loadBootstrapStatus();
+    renderAuthState();
     loadAll();
   </script>
 </body>
