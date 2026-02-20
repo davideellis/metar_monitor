@@ -198,6 +198,11 @@ resource "aws_lambda_function" "collector" {
   }
 }
 
+resource "aws_cloudwatch_log_group" "collector" {
+  name              = "/aws/lambda/${aws_lambda_function.collector.function_name}"
+  retention_in_days = 30
+}
+
 resource "aws_cloudwatch_event_rule" "hourly" {
   name                = "${local.service_name}-hourly"
   description         = "Trigger METAR collector every hour"
@@ -274,6 +279,11 @@ resource "aws_lambda_function" "history" {
       DEFAULT_STATION = local.default_station
     }
   }
+}
+
+resource "aws_cloudwatch_log_group" "history" {
+  name              = "/aws/lambda/${aws_lambda_function.history.function_name}"
+  retention_in_days = 30
 }
 
 resource "aws_apigatewayv2_api" "history" {
@@ -370,6 +380,11 @@ resource "aws_lambda_function" "admin" {
       ADMIN_TOKEN    = var.admin_token
     }
   }
+}
+
+resource "aws_cloudwatch_log_group" "admin" {
+  name              = "/aws/lambda/${aws_lambda_function.admin.function_name}"
+  retention_in_days = 30
 }
 
 resource "aws_apigatewayv2_api" "admin" {
@@ -490,6 +505,11 @@ resource "aws_lambda_function" "router" {
       ALERT_STATE_TABLE = aws_dynamodb_table.alert_state.name
     }
   }
+}
+
+resource "aws_cloudwatch_log_group" "router" {
+  name              = "/aws/lambda/${aws_lambda_function.router.function_name}"
+  retention_in_days = 30
 }
 
 resource "aws_cloudwatch_event_rule" "router_alerts" {
